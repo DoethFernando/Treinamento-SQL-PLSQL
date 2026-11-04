@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hub de Treinamento - Oracle 18c XE & PL/SQL</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    pre code { font-family: 'Courier New', Courier, monospace; }
+    .custom-scroll::-webkit-scrollbar { width: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #0f172a; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
+
+  <!-- Header Superior -->
+  <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 px-6 py-3 flex flex-wrap justify-between items-center gap-4">
+    <div class="flex items-center gap-3">
+      <div class="bg-red-500/20 text-red-400 p-2 rounded-lg border border-red-500/30 text-xl font-bold">
+        ORA
+      </div>
+      <div>
+        <h1 class="text-base font-bold text-white flex items-center gap-2">
+          Treinamento Oracle 18c XE & PL/SQL
+          <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700">Iniciante</span>
+        </h1>
+        <p class="text-xs text-slate-400">Guia de Apresentação e Bancada Prática • Duração: 1h30m a 2h</p>
+      </div>
+    </div>
+
+    <!-- Cronômetro de Apresentação -->
+    <div class="flex items-center gap-3 bg-slate-950/80 border border-slate-800 px-3 py-1.5 rounded-lg">
+      <span class="text-xs text-slate-400 font-medium">Tempo:</span>
+      <span id="timerDisplay" class="font-mono text-base font-bold text-emerald-400">00:00:00</span>
+      <div class="flex items-center gap-1">
+        <button onclick="startTimer()" id="btnStart" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-xs text-white rounded transition">Iniciar</button>
+        <button onclick="pauseTimer()" class="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-xs text-white rounded transition">Pausar</button>
+        <button onclick="resetTimer()" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded transition">Zerar</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden">
+    <!-- Menu Lateral de Abas -->
+    <aside class="w-64 bg-slate-900/60 border-r border-slate-800 flex flex-col p-3 gap-1 shrink-0 overflow-y-auto">
+      <span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-2 py-1">Navegação</span>
+      
+      <button onclick="switchTab('tab-setup')" id="nav-tab-setup" class="tab-btn w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center justify-between text-slate-300 hover:bg-slate-800/80">
+        <span>0. Setup do Ambiente</span>
+        <span class="text-xs text-slate-500">Inicial</span>
+      </button>
+
+      <button onclick="switchTab('tab-mod1')" id="nav-tab-mod1" class="tab-btn w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center justify-between text-slate-300 hover:bg-slate-800/80">
+        <span>1. PL/SQL Developer</span>
+        <span class="text-xs text-slate-500">15m</span>
+      </button>
+
+      <button onclick="switchTab('tab-mod2')" id="nav-tab-mod2" class="tab-btn w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center justify-between text-slate-300 hover:bg-slate-800/80">
+        <span>2. DDL, DML & Backup</span>
+        <span class="text-xs text-slate-500">20m</span>
+      </button>
+
+      <button onclick="switchTab('tab-mod3')" id="nav-tab-mod3" class="tab-btn w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center justify-between text-slate-300 hover:bg-slate-800/80">
+        <span>3. Views de Consulta</span>
+        <span class="text-xs text-slate-500">15m</span>
+      </button>
+
+      <button onclick="switchTab('tab-mod4')" id="nav-tab-mod4" class="tab-btn w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center justify-between text-slate-300 hover:bg-slate-800/80">
+        <span>4. PL/SQL & Rotinas</span>
+        <span class="text-xs text-slate-500">25m</span>
+      </button>
+
+      <button onclick="switchTab('tab-mod5')" id="nav-tab-mod5" class="tab-btn w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center justify-between text-slate-300 hover:bg-slate-800/80">
+        <span>5. Triggers & Mutante</span>
+        <span class="text-xs text-slate-500">30m</span>
+      </button>
+
+      <div class="my-2 border-t border-slate-800"></div>
+
+      <span class="text-[11px] font-semibold text-amber-400 uppercase tracking-wider px-2 py-1">Brainstorm</span>
+      <button onclick="switchTab('tab-brainstorm')" id="nav-tab-brainstorm" class="tab-btn w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center justify-between text-amber-300 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20">
+        <span>💡 Minhas Notas (até 06/11)</span>
+      </button>
+    </aside>
+
+    <!-- Área de Conteúdo -->
+    <main class="flex-1 p-6 overflow-y-auto custom-scroll space-y-6">
+
+      <!-- ================= ABA SETUP ================= -->
+      <section id="tab-setup" class="tab-content hidden space-y-4">
+        <div class="border-b border-slate-800 pb-3">
+          <h2 class="text-xl font-bold text-white">0. Setup do Ambiente de Treinamento</h2>
+          <p class="text-sm text-slate-400">Execute este script inicial conectado como <code class="text-red-400">SYSTEM</code> no Oracle 18c XE antes de iniciar a aula.</p>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-semibold text-slate-400 uppercase">Script DDL & DML Inicial</span>
+            <button onclick="copyCode('code-setup')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 transition">Copiar Script</button>
+          </div>
+          <pre class="bg-slate-950 p-4 rounded text-xs text-emerald-400 overflow-x-auto"><code id="code-setup">-- Conectado como SYSTEM ou SYSDBA:
+CREATE USER usr_treinamento IDENTIFIED BY Treina123# DEFAULT TABLESPACE users QUOTA UNLIMITED ON users;
+GRANT CONNECT, RESOURCE, CREATE VIEW TO usr_treinamento;
+
+-- Conecte-se com USR_TREINAMENTO para criar as tabelas base:
+CREATE TABLE clientes (
+    id_cliente NUMBER PRIMARY KEY,
+    nome VARCHAR2(100),
+    status VARCHAR2(20)
+);
+
+CREATE TABLE pedidos (
+    id_pedido NUMBER PRIMARY KEY,
+    id_cliente NUMBER,
+    valor NUMBER(10,2),
+    data_pedido DATE
+);
+
+INSERT INTO clientes VALUES (1, 'Empresa Alfa', 'ATIVO');
+INSERT INTO clientes VALUES (2, 'Comercio Beta', 'INATIVO');
+INSERT INTO clientes VALUES (3, 'Industria Gama', 'ATIVO');
+
+INSERT INTO pedidos VALUES (101, 1, 500.00, SYSDATE);
+INSERT INTO pedidos VALUES (102, 3, 1200.00, SYSDATE);
+COMMIT;</code></pre>
+        </div>
+      </section>
+
+      <!-- ================= ABA MÓDULO 1 ================= -->
+      <section id="tab-mod1" class="tab-content hidden space-y-4">
+        <div class="border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded">Módulo 1</span>
+            <span class="text-xs text-slate-400">Tempo sugerido: 15 minutos</span>
+          </div>
+          <h2 class="text-xl font-bold text-white mt-1">Produtividade no PL/SQL Developer (Allround Automations)</h2>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+            <h3 class="font-semibold text-sm text-indigo-300">1. Rollback on Logoff / Disconnect</h3>
+            <p class="text-xs text-slate-400"><strong>Caminho:</strong> Preferences > Connection > Logoff / Disconnect > Rollback.</p>
+            <p class="text-xs text-slate-300">Evita que transações abertas e esquecidas no SQL Window sofram commit acidental ao desconectar ou fechar o PL/SQL Developer.</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+            <h3 class="font-semibold text-sm text-indigo-300">2. AutoReplace (Abreviações Rápidas)</h3>
+            <p class="text-xs text-slate-400"><strong>Caminho:</strong> Preferences > User Interface > Editor > AutoReplace.</p>
+            <p class="text-xs text-slate-300">Permite configurar atalhos como digitar <code>sft</code> e a ferramenta substituir automaticamente por <code>select * from </code>.</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+            <h3 class="font-semibold text-sm text-indigo-300">3. Copy as Expression List</h3>
+            <p class="text-xs text-slate-400"><strong>Onde:</strong> Botão direito sobre valores selecionados em qualquer Grid de resultados.</p>
+            <p class="text-xs text-slate-300">Copia automaticamente uma lista de IDs no formato <code>('ID1', 'ID2', 'ID3')</code> para colar direto em clausulas <code>IN (...)</code>.</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+            <h3 class="font-semibold text-sm text-indigo-300">4. Restaurar Caixas "Don't Show Again"</h3>
+            <p class="text-xs text-slate-400"><strong>Caminho:</strong> Preferences > User Interface > Options > Reset "Don't show again" flags.</p>
+            <p class="text-xs text-slate-300">Reativa avisos cruciais de confirmação que o desenvolvedor possa ter desativado por engano.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ABA MÓDULO 2 ================= -->
+      <section id="tab-mod2" class="tab-content hidden space-y-4">
+        <div class="border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded">Módulo 2</span>
+            <span class="text-xs text-slate-400">Tempo sugerido: 20 minutos</span>
+          </div>
+          <h2 class="text-xl font-bold text-white mt-1">Diferenciação DDL vs DML, CTAS e Subquery IN</h2>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+          <h3 class="font-semibold text-sm text-amber-400">Regra de Ouro: DDL faz Commit Implícito</h3>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Comandos <strong>DML</strong> (<code>INSERT, UPDATE, DELETE</code>) respeitam a transação e podem sofrer <code>ROLLBACK</code>. 
+            Comandos <strong>DDL</strong> (<code>CREATE, ALTER, DROP, TRUNCATE</code>) realizam um <code>COMMIT</code> implícito no banco antes e depois de rodar.
+          </p>
+        </div>
+
+        <!-- Atividade Prática 2 -->
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <div class="flex justify-between items-center">
+            <h4 class="font-bold text-sm text-white">Atividade Prática em Sala</h4>
+            <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Exercício 2</span>
+          </div>
+          <p class="text-xs text-slate-300">
+            1. Crie uma tabela de backup idêntica a <code>pedidos</code> usando a técnica CTAS (<code>CREATE TABLE AS SELECT</code>).<br>
+            2. Realize uma consulta na tabela <code>clientes</code> filtrando apenas aqueles que possuem pedidos registrados usando <code>WHERE id_cliente IN (SELECT ...)</code>.
+          </p>
+          
+          <button onclick="toggleAccordion('gabarito-mod2')" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition">
+            <span id="gabarito-mod2-label">▶ Exibir Gabarito</span>
+          </button>
+
+          <div id="gabarito-mod2" class="hidden pt-2 border-t border-slate-800 space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-xs text-slate-400 uppercase font-semibold">Solução</span>
+              <button onclick="copyCode('code-gab2')" class="text-xs px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Copiar</button>
+            </div>
+            <pre class="bg-slate-950 p-3 rounded text-xs text-emerald-400 overflow-x-auto"><code id="code-gab2">-- 1. Backup com CTAS
+CREATE TABLE bkp_pedidos AS SELECT * FROM pedidos;
+
+-- 2. Subquery com IN
+SELECT * 
+FROM clientes 
+WHERE id_cliente IN (SELECT id_cliente FROM pedidos);</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ABA MÓDULO 3 ================= -->
+      <section id="tab-mod3" class="tab-content hidden space-y-4">
+        <div class="border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded">Módulo 3</span>
+            <span class="text-xs text-slate-400">Tempo sugerido: 15 minutos</span>
+          </div>
+          <h2 class="text-xl font-bold text-white mt-1">Camada de Abstração: Views</h2>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+          <h3 class="font-semibold text-sm text-indigo-300">Conceito e Benefícios</h3>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Uma View armazena apenas a declaração SQL compilada no dicionário de dados. É ideal para simplificar junções repetitivas (JOINs), esconder dados sigilosos e prover uma camada segura de leitura para os sistemas consumidores.
+          </p>
+        </div>
+
+        <!-- Atividade Prática 3 -->
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <div class="flex justify-between items-center">
+            <h4 class="font-bold text-sm text-white">Atividade Prática em Sala</h4>
+            <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Exercício 3</span>
+          </div>
+          <p class="text-xs text-slate-300">
+            Crie uma view chamada <code>v_pedidos_detalhados</code> trazendo o código do pedido, nome do cliente, status do cliente e o valor do pedido.
+          </p>
+          
+          <button onclick="toggleAccordion('gabarito-mod3')" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition">
+            <span id="gabarito-mod3-label">▶ Exibir Gabarito</span>
+          </button>
+
+          <div id="gabarito-mod3" class="hidden pt-2 border-t border-slate-800 space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-xs text-slate-400 uppercase font-semibold">Solução</span>
+              <button onclick="copyCode('code-gab3')" class="text-xs px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Copiar</button>
+            </div>
+            <pre class="bg-slate-950 p-3 rounded text-xs text-emerald-400 overflow-x-auto"><code id="code-gab3">CREATE OR REPLACE VIEW v_pedidos_detalhados AS
+SELECT 
+    p.id_pedido,
+    c.nome AS nome_cliente,
+    c.status AS status_cliente,
+    p.valor
+FROM pedidos p
+INNER JOIN clientes c ON c.id_cliente = p.id_cliente;
+
+-- Consulta de teste:
+SELECT * FROM v_pedidos_detalhados WHERE status_cliente = 'ATIVO';</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ABA MÓDULO 4 ================= -->
+      <section id="tab-mod4" class="tab-content hidden space-y-4">
+        <div class="border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded">Módulo 4</span>
+            <span class="text-xs text-slate-400">Tempo sugerido: 25 minutos</span>
+          </div>
+          <h2 class="text-xl font-bold text-white mt-1">PL/SQL: Loops, Procedures, Functions e Test Window</h2>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+            <h3 class="font-semibold text-sm text-indigo-300">Procedure vs Function</h3>
+            <p class="text-xs text-slate-300">
+              • <strong>Procedure:</strong> Executa blocos de regras e manipulação de dados.<br>
+              • <strong>Function:</strong> Deve conter cláusula <code>RETURN</code> obrigatória e pode ser utilizada dentro de instruções <code>SELECT</code>.
+            </p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+            <h3 class="font-semibold text-sm text-indigo-300">Recurso: Test Window</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              No PL/SQL Developer, clique com o botão direito sobre a Function ou Procedure compilada e selecione <strong>Test</strong>. A IDE gera uma janela automática para preencher variáveis e fazer debug linha a linha.
+            </p>
+          </div>
+        </div>
+
+        <!-- Atividade Prática 4 -->
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <div class="flex justify-between items-center">
+            <h4 class="font-bold text-sm text-white">Atividade Prática em Sala</h4>
+            <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Exercício 4</span>
+          </div>
+          <p class="text-xs text-slate-300">
+            1. Crie uma tabela de logs e utilize um loop (<code>FOR i IN 1..5 LOOP</code>) para inserir 5 linhas em lote.<br>
+            2. Crie uma função chamada <code>fn_valida_cliente_ativo</code> que recebe o ID do cliente e retorna 'S' ou 'N'.
+          </p>
+          
+          <button onclick="toggleAccordion('gabarito-mod4')" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition">
+            <span id="gabarito-mod4-label">▶ Exibir Gabarito</span>
+          </button>
+
+          <div id="gabarito-mod4" class="hidden pt-2 border-t border-slate-800 space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-xs text-slate-400 uppercase font-semibold">Solução</span>
+              <button onclick="copyCode('code-gab4')" class="text-xs px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Copiar</button>
+            </div>
+            <pre class="bg-slate-950 p-3 rounded text-xs text-emerald-400 overflow-x-auto"><code id="code-gab4">-- Tabela de Logs
+CREATE TABLE log_processamento (
+    id_log NUMBER GENERATED ALWAYS AS IDENTITY,
+    mensagem VARCHAR2(100),
+    data_log DATE
+);
+
+-- Bloco com laço FOR
+BEGIN
+    FOR i IN 1..5 LOOP
+        INSERT INTO log_processamento (mensagem, data_log)
+        VALUES ('Processamento do item ' || i, SYSDATE);
+    END LOOP;
+    COMMIT;
+END;
+/
+
+-- Function
+CREATE OR REPLACE FUNCTION fn_valida_cliente_ativo(p_id_cliente IN NUMBER) 
+RETURN VARCHAR2 
+IS
+    v_status clientes.status%TYPE;
+BEGIN
+    SELECT status INTO v_status FROM clientes WHERE id_cliente = p_id_cliente;
+    
+    IF v_status = 'ATIVO' THEN
+        RETURN 'S';
+    ELSE
+        RETURN 'N';
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 'INEXISTENTE';
+END;
+/
+
+-- Teste no SELECT:
+SELECT id_cliente, nome, fn_valida_cliente_ativo(id_cliente) AS is_ativo FROM clientes;</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ABA MÓDULO 5 ================= -->
+      <section id="tab-mod5" class="tab-content hidden space-y-4">
+        <div class="border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded">Módulo 5</span>
+            <span class="text-xs text-slate-400">Tempo sugerido: 30 minutos</span>
+          </div>
+          <h2 class="text-xl font-bold text-white mt-1">Triggers: Before/After, Condicionais e Tabela Mutante</h2>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1">
+            <h3 class="font-semibold text-xs text-indigo-300">BEFORE vs AFTER</h3>
+            <p class="text-xs text-slate-400"><strong>BEFORE:</strong> Validações de dados e transformações (:NEW).<br><strong>AFTER:</strong> Logs e tabelas de auditoria.</p>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1">
+            <h3 class="font-semibold text-xs text-indigo-300">Predicados Condicionais</h3>
+            <p class="text-xs text-slate-400">Permite usar <code>IF INSERTING</code>, <code>IF UPDATING</code> e <code>IF DELETING</code> numa única trigger unificada.</p>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1">
+            <h3 class="font-semibold text-xs text-amber-400">Tabela Mutante (ORA-04091)</h3>
+            <p class="text-xs text-slate-400">Ocorre ao tentar consultar via <code>SELECT</code> a própria tabela que acionou a trigger row-level.</p>
+          </div>
+        </div>
+
+        <!-- Atividade Prática 5 -->
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <div class="flex justify-between items-center">
+            <h4 class="font-bold text-sm text-white">Demonstração Prática: Auditoria e Provocação do Erro ORA-04091</h4>
+            <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Exercício 5</span>
+          </div>
+          <p class="text-xs text-slate-300">
+            Abaixo estão os scripts da trigger de auditoria multi-ação e o caso clássico de provocação da tabela mutante com o comando de desativação.
+          </p>
+          
+          <button onclick="toggleAccordion('gabarito-mod5')" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition">
+            <span id="gabarito-mod5-label">▶ Exibir Scripts de Trigger</span>
+          </button>
+
+          <div id="gabarito-mod5" class="hidden pt-2 border-t border-slate-800 space-y-3">
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs text-slate-400 font-semibold">1. Tabela e Trigger de Auditoria Condicional</span>
+                <button onclick="copyCode('code-gab5-1')" class="text-xs px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Copiar</button>
+              </div>
+              <pre class="bg-slate-950 p-3 rounded text-xs text-emerald-400 overflow-x-auto"><code id="code-gab5-1">CREATE TABLE auditoria_pedidos (
+    id_auditoria NUMBER GENERATED ALWAYS AS IDENTITY,
+    id_pedido NUMBER,
+    acao VARCHAR2(20),
+    data_hora DATE,
+    usuario VARCHAR2(50)
+);
+
+CREATE OR REPLACE TRIGGER trg_pedidos_audit
+AFTER INSERT OR UPDATE OR DELETE ON pedidos
+FOR EACH ROW
+DECLARE
+    v_acao VARCHAR2(20);
+BEGIN
+    IF INSERTING THEN
+        v_acao := 'INSERCAO';
+        INSERT INTO auditoria_pedidos (id_pedido, acao, data_hora, usuario)
+        VALUES (:NEW.id_pedido, v_acao, SYSDATE, USER);
+    ELSIF UPDATING THEN
+        v_acao := 'ALTERACAO';
+        INSERT INTO auditoria_pedidos (id_pedido, acao, data_hora, usuario)
+        VALUES (:NEW.id_pedido, v_acao, SYSDATE, USER);
+    ELSIF DELETING THEN
+        v_acao := 'EXCLUSAO';
+        INSERT INTO auditoria_pedidos (id_pedido, acao, data_hora, usuario)
+        VALUES (:OLD.id_pedido, v_acao, SYSDATE, USER);
+    END IF;
+END;
+/</code></pre>
+            </div>
+
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs text-amber-400 font-semibold">2. Provocação do Erro ORA-04091 e Disable</span>
+                <button onclick="copyCode('code-gab5-2')" class="text-xs px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Copiar</button>
+              </div>
+              <pre class="bg-slate-950 p-3 rounded text-xs text-amber-300 overflow-x-auto"><code id="code-gab5-2">-- Criação proposital do erro de tabela mutante:
+CREATE OR REPLACE TRIGGER trg_pedidos_mutante_err
+BEFORE UPDATE ON pedidos
+FOR EACH ROW
+DECLARE
+    v_total NUMBER;
+BEGIN
+    -- ORA-04091 acontece ao ler a própria tabela em trigger FOR EACH ROW:
+    SELECT COUNT(1) INTO v_total FROM pedidos;
+END;
+/
+
+-- Teste que falhará com erro:
+UPDATE pedidos SET valor = 999 WHERE id_pedido = 101;
+
+-- Como desabilitar para voltar o ambiente:
+ALTER TRIGGER trg_pedidos_mutante_err DISABLE;</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ABA BRAINSTORM ================= -->
+      <section id="tab-brainstorm" class="tab-content hidden space-y-4">
+        <div class="border-b border-slate-800 pb-3 flex justify-between items-center">
+          <div>
+            <h2 class="text-xl font-bold text-amber-400 flex items-center gap-2">
+              💡 Painel de Brainstorm & Anotações
+            </h2>
+            <p class="text-sm text-slate-400">Guarde suas ideias e lembretes aqui até a data do treinamento (06/11). Fica salvo automaticamente no seu navegador.</p>
+          </div>
+          <button onclick="salvarNotas()" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white rounded transition flex items-center gap-1">
+            Salvar Anotações
+          </button>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <label for="brainstormText" class="block text-xs font-medium text-slate-300">
+            Digite tópicos que você for lembrando para adicionar no roteiro:
+          </label>
+          <textarea id="brainstormText" rows="12" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:border-amber-500 font-mono resize-y" placeholder="- Lembrar de demonstrar o atalho F5 (Explain Plan)...&#10;- Explicar a diferença entre NULL e espaço em branco no Oracle...&#10;- Colocar exemplo de RAISE_APPLICATION_ERROR..."></textarea>
+          <div class="flex justify-between items-center text-xs text-slate-500">
+            <span id="saveStatus">Carregando notas salvas...</span>
+            <span>Armazenamento local (localStorage)</span>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Notificação Flutuante de Cópia -->
+  <div id="toast" class="fixed bottom-6 right-6 bg-emerald-600 text-white text-xs px-4 py-2.5 rounded-lg shadow-xl opacity-0 pointer-events-none transition-all duration-300">
+    Código copiado com sucesso!
+  </div>
+
+  <script>
+    // Gerenciador de Abas
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(el => {
+        el.classList.remove('bg-slate-800', 'text-white');
+        el.classList.add('text-slate-300');
+      });
+
+      const activeSection = document.getElementById(tabId);
+      if (activeSection) activeSection.classList.remove('hidden');
+
+      const activeNav = document.getElementById('nav-' + tabId);
+      if (activeNav) {
+        activeNav.classList.add('bg-slate-800', 'text-white');
+        activeNav.classList.remove('text-slate-300');
+      }
+    }
+
+    // Inicialização da primeira aba
+    switchTab('tab-setup');
+
+    // Accordion de Gabaritos
+    function toggleAccordion(id) {
+      const el = document.getElementById(id);
+      const label = document.getElementById(id + '-label');
+      if (el.classList.contains('hidden')) {
+        el.classList.remove('hidden');
+        if (label) label.innerText = '▼ Ocultar Gabarito';
+      } else {
+        el.classList.add('hidden');
+        if (label) label.innerText = '▶ Exibir Gabarito';
+      }
+    }
+
+    // Copiar código com Toast
+    function copyCode(elementId) {
+      const code = document.getElementById(elementId).innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        const toast = document.getElementById('toast');
+        toast.classList.remove('opacity-0', 'pointer-events-none');
+        setTimeout(() => {
+          toast.classList.add('opacity-0', 'pointer-events-none');
+        }, 2000);
+      });
+    }
+
+    // Cronômetro da Apresentação
+    let timerInterval = null;
+    let secondsElapsed = 0;
+
+    function formatTime(sec) {
+      const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+      const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+      const s = String(sec % 60).padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    }
+
+    function startTimer() {
+      if (timerInterval) return;
+      timerInterval = setInterval(() => {
+        secondsElapsed++;
+        document.getElementById('timerDisplay').innerText = formatTime(secondsElapsed);
+      }, 1000);
+    }
+
+    function pauseTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+
+    function resetTimer() {
+      pauseTimer();
+      secondsElapsed = 0;
+      document.getElementById('timerDisplay').innerText = '00:00:00';
+    }
+
+    // Persistência das Notas de Brainstorm (LocalStorage)
+    const STORAGE_KEY = 'oracle_training_brainstorm_notes';
+
+    function carregarNotas() {
+      const notas = localStorage.getItem(STORAGE_KEY);
+      const txt = document.getElementById('brainstormText');
+      const status = document.getElementById('saveStatus');
+      if (notas) {
+        txt.value = notas;
+        status.innerText = 'Últimas anotações restauradas do navegador.';
+      } else {
+        txt.value = `- Explicar atalho F5 (Explain Plan) para planos de execução.\n- Mostrar diferença entre CHAR e VARCHAR2.\n- Citar exemplo de RAISE_APPLICATION_ERROR(-20001, '...') nas triggers.`;
+        status.innerText = 'Exemplos pré-carregados. Edite e clique em Salvar.';
+      }
+    }
+
+    function salvarNotas() {
+      const txt = document.getElementById('brainstormText').value;
+      localStorage.setItem(STORAGE_KEY, txt);
+      const status = document.getElementById('saveStatus');
+      status.innerText = 'Salvo com sucesso em ' + new Date().toLocaleTimeString('pt-BR');
+    }
+
+    // Salvar automaticamente ao digitar
+    document.getElementById('brainstormText').addEventListener('input', () => {
+      localStorage.setItem(STORAGE_KEY, document.getElementById('brainstormText').value);
+      document.getElementById('saveStatus').innerText = 'Salvando automaticamente...';
+    });
+
+    window.addEventListener('DOMContentLoaded', carregarNotas);
+  </script>
+</body>
+</html>

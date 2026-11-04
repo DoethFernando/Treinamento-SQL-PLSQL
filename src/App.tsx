@@ -1,0 +1,1315 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Edit3,
+  Eye,
+  FileText,
+  Monitor,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  Share2,
+  Sliders,
+  Trash2,
+  UserCheck,
+} from 'lucide-react';
+import {
+  DEFAULT_SCRATCHPAD_TEXT,
+  INITIAL_BRAINSTORM_IDEAS,
+  INITIAL_MODULES,
+  BRIDGE_SUGGESTIONS,
+} from './data/initialCurriculum';
+import {
+  BrainstormIdea,
+  BridgeSuggestion,
+  KeyPointItem,
+  NavSection,
+  TrainingModule,
+} from './types/training';
+import { CodeBlock } from './components/CodeBlock';
+import { TransactionSimulator } from './components/TransactionSimulator';
+import { MasterScriptsView } from './components/MasterScriptsView';
+import { BridgeTopicsView } from './components/BridgeTopicsView';
+import { BrainstormView } from './components/BrainstormView';
+import { ModuleEditorModal } from './components/ModuleEditorModal';
+import { KeyPointDetailModal } from './components/KeyPointDetailModal';
+
+const MODULES_STORAGE_KEY = 'oracle18xe_training_modules_v2';
+const IDEAS_STORAGE_KEY = 'oracle18xe_training_ideas_v2';
+const SCRATCHPAD_STORAGE_KEY = 'oracle_training_brainstorm_notes';
+const VIEW_MODE_STORAGE_KEY = 'oracle_training_view_mode_v2';
+const TIMER_SYNC_KEY = 'oracle_training_timer_sync_v2';
+const ACTIVE_MODULE_SYNC_KEY = 'oracle_training_active_mod_sync_v2';
+
+function formatClock(totalSeconds: number): string {
+  const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+  const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+  const s = String(totalSeconds % 60).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+export default function App() {
+  // Mode: Student (Public / Projection View) vs Instructor (Development Workbench)
+  const [isStudentView, setIsStudentView] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const search = new URLSearchParams(window.location.search);
+      const urlView = search.get('view') || search.get('mode');
+      if (urlView === 'aluno') return true;
+      if (urlView === 'instrutor') return false;
+
+      // Auto-detect public link
+      if (window.location.hostname.includes('ais-pre')) return true;
+
+      const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      if (saved === 'aluno') return true;
+      if (saved === 'instrutor') return false;
+    }
+    return false;
+  });
+
+  const [activeNav, setActiveNav] = useState<NavSection>('roteiro');
+
+  // Persistent Curriculum State (v2 with deepDive explanations & new topics)
+  const [modules, setModules] = useState<TrainingModule[]>(() => {
+    try {
+      const saved = localStorage.getItem(MODULES_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      // Migration from v1: preserve any user-created custom modules
+      const savedV1 = localStorage.getItem('oracle18xe_training_modules_v1');
+      if (savedV1) {
+        const parsedV1 = JSON.parse(savedV1);
+        if (Array.isArray(parsedV1)) {
+          const customOnes = parsedV1.filter((m: TrainingModule) => m.isCustom);
+          if (customOnes.length > 0) {
+            return [...INITIAL_MODULES, ...customOnes];
+          }
+        }
+      }
+    } catch {
+      // fallback to initial
+    }
+    return INITIAL_MODULES;
+  });
+
+  const [activeModuleId, setActiveModuleId] = useState<string>(() => modules[0]?.id ?? 'mod-setup');
+
+  // Persistent Brainstorm Backlog (v2)
+  const [ideas, setIdeas] = useState<BrainstormIdea[]>(() => {
+    try {
+      const saved = localStorage.getItem(IDEAS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      const savedV1 = localStorage.getItem('oracle18xe_training_ideas_v1');
+      if (savedV1) {
+        const parsedV1 = JSON.parse(savedV1);
+        if (Array.isArray(parsedV1)) {
+          const existingIds = new Set(INITIAL_BRAINSTORM_IDEAS.map((i) => i.id));
+          const extra = parsedV1.filter((i: BrainstormIdea) => !existingIds.has(i.id));
+          return [...INITIAL_BRAINSTORM_IDEAS, ...extra];
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return INITIAL_BRAINSTORM_IDEAS;
+  });
+
+  // Persistent Freeform Scratchpad (compatible key with HTML snippet)
+  const [scratchpad, setScratchpad] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(SCRATCHPAD_STORAGE_KEY);
+      if (saved !== null) return saved;
+    } catch {
+      // fallback
+    }
+    return DEFAULT_SCRATCHPAD_TEXT;
+  });
+
+  const [lastSavedAt, setLastSavedAt] = useState<string>(() =>
+    new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  );
+
+  // Solution Accordion State per Module
+  const [revealedSolutions, setRevealedSolutions] = useState<Record<string, boolean>>({});
+
+  // Live Presentation Stopwatch
+  const [secondsElapsed, setSecondsElapsed] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+
+  // Selected KeyPoint for Deep-Dive Modal
+  const [selectedKeyPoint, setSelectedKeyPoint] = useState<KeyPointItem | null>(null);
+
+  // Modal Editor State
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingModule, setEditingModule] = useState<TrainingModule | null>(null);
+  const [prefillIdeaTitle, setPrefillIdeaTitle] = useState<string | undefined>(undefined);
+  const [convertingIdeaId, setConvertingIdeaId] = useState<string | null>(null);
+
+  // Toast Notification
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+  };
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const t = setTimeout(() => setToastMessage(null), 2600);
+    return () => clearTimeout(t);
+  }, [toastMessage]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(modules));
+      setLastSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [modules]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(IDEAS_STORAGE_KEY, JSON.stringify(ideas));
+      setLastSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    } catch {
+      // ignore
+    }
+  }, [ideas]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SCRATCHPAD_STORAGE_KEY, scratchpad);
+      setLastSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    } catch {
+      // ignore
+    }
+  }, [scratchpad]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, isStudentView ? 'aluno' : 'instrutor');
+      if (isStudentView && activeNav !== 'roteiro' && activeNav !== 'scripts') {
+        setActiveNav('roteiro');
+      }
+    } catch {
+      // ignore
+    }
+  }, [isStudentView, activeNav]);
+
+  // Synchronize Active Module with local storage so student/projector tab can follow instructor live
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_MODULE_SYNC_KEY, activeModuleId);
+    } catch {
+      // ignore
+    }
+  }, [activeModuleId]);
+
+  // Synchronize timer state
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        TIMER_SYNC_KEY,
+        JSON.stringify({ secondsElapsed, timerRunning, timestamp: Date.now() })
+      );
+    } catch {
+      // ignore
+    }
+  }, [secondsElapsed, timerRunning]);
+
+  // Listen to cross-tab updates (e.g. Instructor changes module or status in another tab/window)
+  useEffect(() => {
+    const handleStorageUpdate = (e: StorageEvent) => {
+      if (e.key === MODULES_STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setModules(parsed);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (e.key === ACTIVE_MODULE_SYNC_KEY && e.newValue) {
+        setActiveModuleId(e.newValue);
+      }
+      if (e.key === TIMER_SYNC_KEY && e.newValue) {
+        try {
+          const syncData = JSON.parse(e.newValue);
+          if (typeof syncData.secondsElapsed === 'number') {
+            setSecondsElapsed(syncData.secondsElapsed);
+          }
+          if (typeof syncData.timerRunning === 'boolean') {
+            setTimerRunning(syncData.timerRunning);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageUpdate);
+    return () => window.removeEventListener('storage', handleStorageUpdate);
+  }, []);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const interval = setInterval(() => {
+      setSecondsElapsed((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timerRunning]);
+
+  const activeModuleIndex = useMemo(() => {
+    const idx = modules.findIndex((m) => m.id === activeModuleId);
+    return idx >= 0 ? idx : 0;
+  }, [modules, activeModuleId]);
+
+  const currentModule = modules[activeModuleIndex] ?? modules[0];
+
+  const totalMinutes = useMemo(
+    () => modules.reduce((acc, m) => acc + m.durationMinutes, 0),
+    [modules]
+  );
+
+  const completedCount = useMemo(
+    () => modules.filter((m) => m.completed).length,
+    [modules]
+  );
+
+  const durationBudgetStatus = useMemo(() => {
+    if (totalMinutes < 90) {
+      return {
+        label: `Abaixo da meta (${totalMinutes} min / alvo 90–120 min)`,
+        tone: 'text-amber-300',
+      };
+    }
+    if (totalMinutes <= 120) {
+      return {
+        label: `Dentro da janela ideal (${totalMinutes} min / 1h30–2h00)`,
+        tone: 'text-emerald-400',
+      };
+    }
+    return {
+      label: `Acima de 2h (${totalMinutes} min / reduza ou deixe tópicos opcionais)`,
+      tone: 'text-rose-300',
+    };
+  }, [totalMinutes]);
+
+  const moduleLinkedIdeas = useMemo(() => {
+    if (!currentModule) return [];
+    return ideas.filter(
+      (i) => i.targetModuleId === currentModule.id && i.status === 'pendente'
+    );
+  }, [ideas, currentModule]);
+
+  const handleToggleModuleCompleted = (id: string) => {
+    setModules((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m))
+    );
+  };
+
+  const handleMoveModule = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= modules.length) return;
+    setModules((prev) => {
+      const copy = [...prev];
+      const [moved] = copy.splice(index, 1);
+      copy.splice(targetIndex, 0, moved);
+      return copy;
+    });
+  };
+
+  const handleDeleteCustomModule = (id: string) => {
+    if (modules.length <= 1) return;
+    setModules((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      if (activeModuleId === id && next[0]) {
+        setActiveModuleId(next[0].id);
+      }
+      return next;
+    });
+    showToast('Tópico removido do roteiro.');
+  };
+
+  const handleSaveModule = (saved: TrainingModule, isNew: boolean) => {
+    if (isNew) {
+      setModules((prev) => [...prev, saved]);
+      setActiveModuleId(saved.id);
+      setActiveNav('roteiro');
+      if (convertingIdeaId) {
+        setIdeas((prev) =>
+          prev.map((i) =>
+            i.id === convertingIdeaId ? { ...i, status: 'incorporado' } : i
+          )
+        );
+        setConvertingIdeaId(null);
+      }
+      showToast(`Novo tópico "${saved.shortTitle}" adicionado ao roteiro.`);
+    } else {
+      setModules((prev) => prev.map((m) => (m.id === saved.id ? saved : m)));
+      showToast(`Módulo "${saved.shortTitle}" atualizado.`);
+    }
+  };
+
+  const handleAddBridgeSuggestion = (suggestion: BridgeSuggestion) => {
+    const exists = modules.some((m) => m.id === suggestion.moduleData.id);
+    if (exists) return;
+
+    const newMod: TrainingModule = {
+      ...suggestion.moduleData,
+      completed: false,
+    };
+
+    setModules((prev) => {
+      const afterIdx = prev.findIndex(
+        (m) => m.id === suggestion.recommendedAfterModuleId
+      );
+      if (afterIdx === -1) return [...prev, newMod];
+      const copy = [...prev];
+      copy.splice(afterIdx + 1, 0, newMod);
+      return copy;
+    });
+
+    showToast(`Tema "${newMod.shortTitle}" incorporado na sequência ideal!`);
+  };
+
+  const handleAddIdea = (text: string, targetModuleId: string) => {
+    const item: BrainstormIdea = {
+      id: `idea-${Date.now()}`,
+      text,
+      targetModuleId,
+      status: 'pendente',
+      createdAt: new Date().toLocaleDateString('pt-BR'),
+    };
+    setIdeas((prev) => [item, ...prev]);
+    showToast('Lembrete salvo no painel de Brainstorm.');
+  };
+
+  const handleToggleIdeaStatus = (id: string) => {
+    setIdeas((prev) =>
+      prev.map((i) =>
+        i.id === id
+          ? { ...i, status: i.status === 'pendente' ? 'incorporado' : 'pendente' }
+          : i
+      )
+    );
+  };
+
+  const handleDeleteIdea = (id: string) => {
+    setIdeas((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  const handleConvertIdeaToModule = (idea: BrainstormIdea) => {
+    setEditingModule(null);
+    setPrefillIdeaTitle(idea.text);
+    setConvertingIdeaId(idea.id);
+    setEditorOpen(true);
+  };
+
+  const handleExportBackup = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      targetDate: '2026-11-06',
+      modules,
+      ideas,
+      scratchpad,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'roteiro_treinamento_oracle18xe_backup.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Backup completo (.json) exportado com sucesso.');
+  };
+
+  const handleImportBackup = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (Array.isArray(parsed.modules) && parsed.modules.length > 0) {
+          setModules(parsed.modules);
+          setActiveModuleId(parsed.modules[0].id);
+        }
+        if (Array.isArray(parsed.ideas)) {
+          setIdeas(parsed.ideas);
+        }
+        if (typeof parsed.scratchpad === 'string') {
+          setScratchpad(parsed.scratchpad);
+        }
+        showToast('Backup restaurado com sucesso!');
+      } catch {
+        showToast('Arquivo JSON inválido para restauração.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleResetDefaults = () => {
+    setModules(INITIAL_MODULES);
+    setActiveModuleId(INITIAL_MODULES[0].id);
+    setIdeas(INITIAL_BRAINSTORM_IDEAS);
+    setScratchpad(DEFAULT_SCRATCHPAD_TEXT);
+    showToast('Roteiro e anotações restaurados para a base original.');
+  };
+
+  const toggleSolution = (moduleId: string) => {
+    setRevealedSolutions((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }));
+  };
+
+  const pendingIdeasCount = ideas.filter((i) => i.status === 'pendente').length;
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#0B0F19] text-slate-100">
+      {/* Top Bar Contract: Strictly 3 Zones separated by gap-8 */}
+      <header className="sticky top-0 z-40 bg-[#0B0F19]/95 backdrop-blur border-b border-slate-800 px-6 py-3.5 flex items-center justify-between gap-8">
+        {/* Zone 1: Single text element Brand wordmark */}
+        <a
+          href="#roteiro"
+          onClick={(e) => {
+            e.preventDefault();
+            setActiveNav('roteiro');
+          }}
+          className="text-base font-bold tracking-tight text-white whitespace-nowrap shrink-0 font-display"
+        >
+          Oracle 18c XE Workbench
+        </a>
+
+        {/* Zone 2: Concise single-line text navigation links */}
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-400">
+          {(isStudentView
+            ? ([
+                { id: 'roteiro', label: 'Roteiro de Treinamento' },
+                { id: 'scripts', label: 'Scripts SQL (DDL & DML)' },
+              ] as const)
+            : ([
+                { id: 'roteiro', label: 'Roteiro' },
+                { id: 'simulador', label: 'Simulador' },
+                { id: 'scripts', label: 'Scripts SQL' },
+                { id: 'conexoes', label: 'Temas de Conexão' },
+                {
+                  id: 'brainstorm',
+                  label: pendingIdeasCount > 0 ? `Brainstorm (${pendingIdeasCount})` : 'Brainstorm',
+                },
+              ] as const)
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveNav(item.id)}
+              className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+                activeNav === item.id
+                  ? 'text-white border-rose-500 font-semibold'
+                  : 'text-slate-400 hover:text-slate-100 border-transparent hover:border-slate-700'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Zone 3: Mode Switcher & Primary Action */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          {isStudentView ? (
+            <>
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Modo Aluno · Ao Vivo
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setIsStudentView(false)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md transition-colors whitespace-nowrap shrink-0"
+                title="Voltar para a bancada do desenvolvedor/instrutor com simulador, conexões e brainstorm"
+              >
+                <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                <span>Modo Instrutor (Dev)</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsStudentView(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-md transition-colors whitespace-nowrap shrink-0"
+                title="Projetar ou visualizar exatamente o que os alunos veem (sem simulador, sem conexões e sem brainstorm)"
+              >
+                <Monitor className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">Visão do Aluno</span>
+                <span className="sm:hidden">Aluno</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingModule(null);
+                  setPrefillIdeaTitle(undefined);
+                  setConvertingIdeaId(null);
+                  setEditorOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-md transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Novo Tópico</span>
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* Mobile Nav Switcher (visible only below md) */}
+      <div className="md:hidden px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center gap-2 overflow-x-auto">
+        {(isStudentView
+          ? ([
+              { id: 'roteiro', label: 'Roteiro' },
+              { id: 'scripts', label: 'Scripts SQL' },
+            ] as const)
+          : ([
+              { id: 'roteiro', label: 'Roteiro' },
+              { id: 'simulador', label: 'Simulador' },
+              { id: 'scripts', label: 'Scripts SQL' },
+              { id: 'conexoes', label: 'Conexões' },
+              { id: 'brainstorm', label: 'Brainstorm' },
+            ] as const)
+        ).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setActiveNav(item.id)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+              activeNav === item.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Workspace Context & Live Presentation Pacing Toolbar (Below Header) */}
+      <div className="bg-slate-900/60 border-b border-slate-800 px-6 py-3">
+        <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+            <span className="text-slate-200 font-semibold flex items-center gap-1.5">
+              <span>SQL &amp; PL/SQL Oracle 18c XE</span>
+              <span className="text-[11px] font-normal text-slate-400">· PL/SQL Developer</span>
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className={`font-medium tabular-nums ${durationBudgetStatus.tone}`}>
+              {durationBudgetStatus.label}
+            </span>
+            <span aria-hidden="true">·</span>
+            <div className="flex items-center gap-2">
+              <span className="tabular-nums font-medium text-slate-200">
+                Progresso: {completedCount}/{modules.length} ({Math.round((completedCount / (modules.length || 1)) * 100)}%)
+              </span>
+              <div className="w-20 sm:w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.round((completedCount / (modules.length || 1)) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+            {!isStudentView && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-slate-400">Edições abertas até 06/11</span>
+              </>
+            )}
+          </div>
+
+          {/* Live Presentation Stopwatch */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-slate-400">Tempo de Aula:</span>
+              <span className="font-mono text-sm font-semibold text-emerald-400 tabular-nums">
+                {formatClock(secondsElapsed)}
+              </span>
+              {timerRunning && (
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              )}
+            </div>
+
+            {/* Stopwatch Controls (Instructor or Student local) */}
+            <div className="flex items-center gap-1.5">
+              {!timerRunning ? (
+                <button
+                  type="button"
+                  onClick={() => setTimerRunning(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded transition-colors whitespace-nowrap shrink-0"
+                  title="Iniciar cronômetro"
+                >
+                  <Play className="w-3 h-3" />
+                  <span>{secondsElapsed > 0 ? 'Retomar' : 'Iniciar'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setTimerRunning(false)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-950 bg-amber-400 hover:bg-amber-300 rounded transition-colors whitespace-nowrap shrink-0"
+                  title="Pausar cronômetro"
+                >
+                  <Pause className="w-3 h-3" />
+                  <span>Pausar</span>
+                </button>
+              )}
+              {!isStudentView && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTimerRunning(false);
+                    setSecondsElapsed(0);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded transition-colors whitespace-nowrap shrink-0"
+                  title="Zerar cronômetro da aula"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Zerar</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Container */}
+      <div className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
+        {activeNav === 'roteiro' && currentModule && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Left Chronological Curriculum Sidebar (3.5 / 4 cols) */}
+            <aside className="lg:col-span-4 xl:col-span-3 rounded-lg border border-slate-800 bg-slate-900/40 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-200">
+                  Sequência do Treinamento ({modules.length} etapas)
+                </span>
+                <span className="text-xs text-slate-400 tabular-nums">
+                  Total: {totalMinutes}m
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-800/70">
+                {modules.map((mod, idx) => {
+                  const isSelected = mod.id === currentModule.id;
+                  return (
+                    <div
+                      key={mod.id}
+                      className={`group flex items-center justify-between gap-2 px-3 py-2.5 transition-colors ${
+                        isSelected
+                          ? 'bg-slate-800/90 text-white'
+                          : 'hover:bg-slate-900/90 text-slate-300'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setActiveModuleId(mod.id)}
+                        className="flex-1 min-w-0 text-left flex items-start gap-2.5 focus-visible:outline-none"
+                      >
+                        <span
+                          className={`text-xs font-mono tabular-nums mt-0.5 shrink-0 ${
+                            mod.completed
+                              ? 'text-emerald-400 font-semibold'
+                              : isSelected
+                              ? 'text-rose-400 font-semibold'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {mod.completed ? '✓' : `${String(idx).padStart(2, '0')}.`}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-medium truncate">
+                              {mod.shortTitle}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[11px] text-slate-400 tabular-nums">
+                              {mod.durationMinutes} min · {mod.category}
+                            </span>
+                            {/* Live Status Tag */}
+                            {mod.completed ? (
+                              <span className="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 whitespace-nowrap">
+                                Concluído
+                              </span>
+                            ) : isSelected ? (
+                              <span className="text-[10px] font-semibold text-rose-300 bg-rose-500/15 px-1.5 py-0.2 rounded border border-rose-500/30 whitespace-nowrap inline-flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                                Em Aula
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 bg-slate-800/60 px-1.5 py-0.2 rounded whitespace-nowrap">
+                                A seguir
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* Reorder Controls (Instructor Dev Mode Only) */}
+                      {!isStudentView && (
+                        <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 shrink-0">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveModule(idx, 'up')}
+                            aria-label="Mover módulo para cima"
+                            className="p-1 text-slate-400 hover:text-white disabled:opacity-25 rounded"
+                            title="Subir na ordem do treinamento"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === modules.length - 1}
+                            onClick={() => handleMoveModule(idx, 'down')}
+                            aria-label="Mover módulo para baixo"
+                            className="p-1 text-slate-400 hover:text-white disabled:opacity-25 rounded"
+                            title="Descer na ordem do treinamento"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!isStudentView ? (
+                <div className="p-3 border-t border-slate-800 bg-[#0B0F19]/50">
+                  <button
+                    type="button"
+                    onClick={() => setActiveNav('conexoes')}
+                    className="w-full py-2 px-3 text-xs font-medium text-slate-300 hover:text-white bg-slate-800/70 hover:bg-slate-800 rounded-md transition-colors whitespace-nowrap"
+                  >
+                    + Ver Temas Sugeridos de Ligação
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 border-t border-slate-800 bg-[#0B0F19]/50 text-center">
+                  <span className="text-[11px] text-slate-500">
+                    Navegue pelas etapas do roteiro clicando nos módulos acima
+                  </span>
+                </div>
+              )}
+            </aside>
+
+            {/* Right Active Module Detail Workbench (8 / 9 cols) */}
+            <main className="lg:col-span-8 xl:col-span-9 space-y-8">
+              {/* Module Header */}
+              <div className="pb-6 border-b border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  {/* Unboxed clean metadata with middle dot separators */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                    <span className="font-mono text-rose-400 font-semibold tabular-nums">
+                      Etapa {String(activeModuleIndex).padStart(2, '0')}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="tabular-nums">
+                      Duração sugerida: {currentModule.durationMinutes} minutos
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>{currentModule.category}</span>
+                  </div>
+
+                  {/* Actions Header: Distinct Student Mode vs Instructor Mode */}
+                  {isStudentView ? (
+                    <div className="flex items-center gap-2">
+                      {currentModule.completed ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Módulo Concluído no Treinamento</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/15 border border-rose-500/30 text-rose-300">
+                          <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+                          <span>Módulo Atual em Aula</span>
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(currentModule.id === 'mod-ddl-dml' ||
+                        currentModule.id === 'mod-triggers' ||
+                        currentModule.id === 'mod-plsqldev') && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveNav('simulador')}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-200 bg-amber-950/50 hover:bg-amber-900/60 border border-amber-800/50 rounded-md transition-colors whitespace-nowrap shrink-0"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>Abrir no Simulador Visual</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingModule(currentModule);
+                          setPrefillIdeaTitle(undefined);
+                          setEditorOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors whitespace-nowrap shrink-0"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Editar Conteúdo</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleModuleCompleted(currentModule.id)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                          currentModule.completed
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                            : 'bg-slate-800 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>
+                          {currentModule.completed ? 'Módulo Apresentado' : 'Marcar Apresentado'}
+                        </span>
+                      </button>
+
+                      {currentModule.isCustom && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomModule(currentModule.id)}
+                          aria-label="Remover tópico customizado"
+                          className="p-1.5 text-slate-400 hover:text-rose-400 bg-slate-900 border border-slate-800 rounded-md transition-colors"
+                          title="Remover tópico adicionado"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                  {String(activeModuleIndex).padStart(2, '0')}. {currentModule.title}
+                </h1>
+              </div>
+
+              {/* Section 1: Concept Summary & Key Points */}
+              <section className="space-y-4">
+                <h2 className="text-lg font-semibold text-white">
+                  Conceito por Trás do Estudo
+                </h2>
+                <p className="text-[15px] text-slate-200 leading-relaxed max-w-[75ch]">
+                  {currentModule.conceptSummary}
+                </p>
+
+                {currentModule.keyPoints.length > 0 && (
+                  <div className="space-y-2.5 pt-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                      <span>Clique em qualquer bloco abaixo para ver a explicação detalhada com regras e comandos:</span>
+                      <span className="text-[11px] text-rose-300 font-medium">Interativo · Clique para expandir</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {currentModule.keyPoints.map((kp, i) => (
+                        <div
+                          key={i}
+                          onClick={() => setSelectedKeyPoint(kp)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedKeyPoint(kp);
+                            }
+                          }}
+                          className="group text-left rounded-lg border border-slate-800 hover:border-rose-500/70 bg-slate-900/40 hover:bg-slate-900/80 p-4 space-y-2.5 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 shadow-sm hover:shadow-md"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="text-sm font-semibold text-white group-hover:text-rose-200 transition-colors">
+                              {kp.title}
+                            </h3>
+                            <span className="text-[11px] font-medium text-slate-400 group-hover:text-rose-300 shrink-0 inline-flex items-center gap-1">
+                              <span>Explicar</span>
+                              <span aria-hidden="true">→</span>
+                            </span>
+                          </div>
+
+                          {kp.pathOrSyntax && (
+                            <p className="text-xs font-mono text-rose-300/90 group-hover:text-rose-300 break-words">
+                              {kp.pathOrSyntax}
+                            </p>
+                          )}
+
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            {kp.detail}
+                          </p>
+
+                          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 group-hover:text-slate-200">
+                            <span className="text-rose-300/90 font-medium">
+                              Ver finalidade &amp; regras de produção
+                            </span>
+                            <span className="font-mono text-[10px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 text-slate-400">
+                              + Detalhes
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* Section 2: Separated DDL and DML Scripts (when applicable) */}
+              {(currentModule.ddlScript || currentModule.dmlScript) && (
+                <section className="pt-6 border-t border-slate-800 space-y-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Scripts de Ambiente Separados (DDL &amp; DML)
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Separados entre criação de estrutura/objetos (DDL — commit automático) e população de dados para teste (DML).
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {currentModule.ddlScript && (
+                      <CodeBlock
+                        title="Script 1 · Estrutura e Objetos (DDL)"
+                        subtitle="Executa COMMIT implícito antes e depois"
+                        code={currentModule.ddlScript}
+                        filename={`${currentModule.id}_ddl.sql`}
+                        onCopySuccess={showToast}
+                      />
+                    )}
+
+                    {currentModule.dmlScript && (
+                      <CodeBlock
+                        title="Script 2 · População de Dados (DML)"
+                        subtitle="Carga inicial e massa de validação"
+                        code={currentModule.dmlScript}
+                        filename={`${currentModule.id}_dml.sql`}
+                        onCopySuccess={showToast}
+                      />
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Section 3: Practical Usage Example */}
+              <section className="pt-6 border-t border-slate-800 space-y-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Exemplo Prático de Uso: {currentModule.usageExample.title}
+                  </h2>
+                  <p className="text-sm text-slate-300 mt-1 max-w-[75ch]">
+                    {currentModule.usageExample.explanation}
+                  </p>
+                </div>
+
+                <CodeBlock
+                  title={currentModule.usageExample.title}
+                  subtitle="Demonstração comentada pelo instrutor"
+                  code={currentModule.usageExample.sql}
+                  filename={`${currentModule.id}_exemplo.sql`}
+                  onCopySuccess={showToast}
+                />
+              </section>
+
+              {/* Section 4: Classroom Suggested Exercise + Collapsible Gabarito */}
+              <section className="pt-6 border-t border-slate-800 space-y-4">
+                <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-5 space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="text-xs text-rose-300 font-medium">
+                      Atividade Sugerida para Apresentação · Prática Guiada
+                    </div>
+                    <h2 className="text-lg font-semibold text-white">
+                      {currentModule.exercise.title}
+                    </h2>
+                    <p className="text-sm text-slate-300 leading-relaxed">
+                      {currentModule.exercise.scenario}
+                    </p>
+                  </div>
+
+                  <ol className="space-y-2 list-decimal list-inside text-sm text-slate-200 pt-2 border-t border-slate-800/80">
+                    {currentModule.exercise.tasks.map((task, idx) => (
+                      <li key={idx} className="leading-relaxed">
+                        {task}
+                      </li>
+                    ))}
+                  </ol>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleSolution(currentModule.id)}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <span>
+                        {revealedSolutions[currentModule.id]
+                          ? 'Ocultar Gabarito da Atividade'
+                          : 'Exibir Gabarito da Atividade'}
+                      </span>
+                      {revealedSolutions[currentModule.id] ? (
+                        <ChevronUp className="w-4 h-4 text-rose-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-emerald-400" />
+                      )}
+                    </button>
+                  </div>
+
+                  {revealedSolutions[currentModule.id] && (
+                    <div className="pt-4 border-t border-slate-800 space-y-3">
+                      <CodeBlock
+                        title={`Gabarito Oficial · ${currentModule.exercise.title}`}
+                        code={currentModule.exercise.solutionSql}
+                        filename={`${currentModule.id}_gabarito.sql`}
+                        onCopySuccess={showToast}
+                      />
+                      {currentModule.exercise.notes && (
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          <strong className="text-white">Observação didática:</strong>{' '}
+                          {currentModule.exercise.notes}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Section 5: Best Practices / Instructor Notes & Brainstorm */}
+              {isStudentView ? (
+                currentModule.instructorTips.length > 0 && (
+                  <section className="pt-6 border-t border-slate-800 space-y-2">
+                    <h3 className="text-sm font-semibold text-emerald-300">
+                      Boas Práticas e Recomendações em Produção
+                    </h3>
+                    <ul className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                      {currentModule.instructorTips.map((tip, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-emerald-400 font-bold">•</span>
+                          <span>{tip}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              ) : (
+                (currentModule.instructorTips.length > 0 ||
+                  moduleLinkedIdeas.length > 0) && (
+                  <section className="pt-6 border-t border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {currentModule.instructorTips.length > 0 && (
+                      <div className="space-y-2">
+                        <h3 className="text-sm font-semibold text-white">
+                          Pontos de Atenção para o Apresentador
+                        </h3>
+                        <ul className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                          {currentModule.instructorTips.map((tip, idx) => (
+                            <li key={idx}>• {tip}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {moduleLinkedIdeas.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold text-amber-300">
+                            Lembretes do Seu Brainstorm para Este Módulo
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => setActiveNav('brainstorm')}
+                            className="text-xs text-slate-400 hover:text-white underline"
+                          >
+                            Gerenciar
+                          </button>
+                        </div>
+                        <ul className="space-y-2 text-xs text-slate-200 leading-relaxed">
+                          {moduleLinkedIdeas.map((idea) => (
+                            <li key={idea.id} className="flex items-start justify-between gap-2">
+                              <span>• {idea.text}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleIdeaStatus(idea.id)}
+                                className="text-emerald-400 hover:underline shrink-0"
+                              >
+                                Concluir
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </section>
+                )
+              )}
+
+              {/* Bottom Chronological Stepper */}
+              <div className="pt-6 border-t border-slate-800 flex items-center justify-between gap-4">
+                <button
+                  type="button"
+                  disabled={activeModuleIndex === 0}
+                  onClick={() =>
+                    setActiveModuleId(modules[activeModuleIndex - 1].id)
+                  }
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-200 bg-slate-900 border border-slate-800 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none rounded-md transition-colors whitespace-nowrap shrink-0"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>
+                    {activeModuleIndex > 0
+                      ? `Anterior: ${modules[activeModuleIndex - 1].shortTitle}`
+                      : 'Início do Roteiro'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={activeModuleIndex === modules.length - 1}
+                  onClick={() =>
+                    setActiveModuleId(modules[activeModuleIndex + 1].id)
+                  }
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:pointer-events-none rounded-md transition-colors whitespace-nowrap shrink-0"
+                >
+                  <span>
+                    {activeModuleIndex < modules.length - 1
+                      ? `Próximo: ${modules[activeModuleIndex + 1].shortTitle}`
+                      : 'Fim do Roteiro'}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </main>
+          </div>
+        )}
+
+        {/* Development Environment Only Views */}
+        {!isStudentView && activeNav === 'simulador' && <TransactionSimulator />}
+
+        {activeNav === 'scripts' && (
+          <MasterScriptsView modules={modules} onCopySuccess={showToast} />
+        )}
+
+        {!isStudentView && activeNav === 'conexoes' && (
+          <BridgeTopicsView
+            suggestions={BRIDGE_SUGGESTIONS}
+            modules={modules}
+            onAddSuggestion={handleAddBridgeSuggestion}
+            onRemoveModule={handleDeleteCustomModule}
+            onCopySuccess={showToast}
+          />
+        )}
+
+        {!isStudentView && activeNav === 'brainstorm' && (
+          <BrainstormView
+            ideas={ideas}
+            modules={modules}
+            scratchpad={scratchpad}
+            lastSavedAt={lastSavedAt}
+            onScratchpadChange={setScratchpad}
+            onAddIdea={handleAddIdea}
+            onToggleIdeaStatus={handleToggleIdeaStatus}
+            onDeleteIdea={handleDeleteIdea}
+            onConvertIdeaToModule={handleConvertIdeaToModule}
+            onExportBackup={handleExportBackup}
+            onImportBackup={handleImportBackup}
+            onResetDefaults={handleResetDefaults}
+          />
+        )}
+      </div>
+
+      {/* Quiet Footer */}
+      <footer className="mt-12 border-t border-slate-800/80 py-4 px-6 text-xs text-slate-500">
+        <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-3">
+          <span>
+            {isStudentView
+              ? 'Roteiro de Treinamento · Oracle Database 18c Express Edition & PL/SQL Developer'
+              : 'Bancada do Instrutor · Oracle Database 18c Express Edition & PL/SQL Developer (Ambiente de Desenvolvimento)'}
+          </span>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => setActiveNav('scripts')}
+              className="hover:text-slate-300 transition-colors"
+            >
+              Central de Scripts (.sql)
+            </button>
+            {!isStudentView ? (
+              <button
+                type="button"
+                onClick={handleExportBackup}
+                className="hover:text-slate-300 transition-colors"
+              >
+                Salvar Backup JSON
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsStudentView(false)}
+                className="hover:text-slate-300 transition-colors underline"
+              >
+                Alternar para Modo Instrutor
+              </button>
+            )}
+          </div>
+        </div>
+      </footer>
+
+      {/* Module Editor Modal */}
+      <ModuleEditorModal
+        isOpen={editorOpen}
+        initialModule={editingModule}
+        prefillTitle={prefillIdeaTitle}
+        onClose={() => {
+          setEditorOpen(false);
+          setConvertingIdeaId(null);
+        }}
+        onSave={handleSaveModule}
+      />
+
+      {/* KeyPoint Deep-Dive Explanation Modal */}
+      <KeyPointDetailModal
+        isOpen={Boolean(selectedKeyPoint)}
+        item={selectedKeyPoint}
+        moduleTitle={currentModule?.title}
+        onClose={() => setSelectedKeyPoint(null)}
+        onCopySuccess={showToast}
+      />
+
+      {/* Copy / Action Toast */}
+      {toastMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-50 bg-slate-900 border border-slate-700 text-slate-100 text-xs font-medium px-4 py-2.5 rounded-md shadow-xl flex items-center gap-2"
+        >
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Hub de Treinamento Oracle 18c XE & PL/SQL",
+  "description": "Bancada interativa e roteiro cronológico para treinamento iniciante de SQL, PL/SQL e PL/SQL Developer no Oracle 18c XE, com scripts DDL/DML separados, gabaritos, simulador transacional e painel de brainstorm.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
