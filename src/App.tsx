@@ -6,11 +6,15 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Clock,
   Edit3,
   Eye,
   FileText,
+  GripVertical,
+  Lock,
   Monitor,
   Pause,
   Play,
@@ -41,6 +45,7 @@ import { BridgeTopicsView } from './components/BridgeTopicsView';
 import { BrainstormView } from './components/BrainstormView';
 import { ModuleEditorModal } from './components/ModuleEditorModal';
 import { KeyPointDetailModal } from './components/KeyPointDetailModal';
+import { InstructorAuthModal } from './components/InstructorAuthModal';
 
 const MODULES_STORAGE_KEY = 'oracle18xe_training_modules_v2';
 const IDEAS_STORAGE_KEY = 'oracle18xe_training_ideas_v2';
@@ -48,6 +53,7 @@ const SCRATCHPAD_STORAGE_KEY = 'oracle_training_brainstorm_notes';
 const VIEW_MODE_STORAGE_KEY = 'oracle_training_view_mode_v2';
 const TIMER_SYNC_KEY = 'oracle_training_timer_sync_v2';
 const ACTIVE_MODULE_SYNC_KEY = 'oracle_training_active_mod_sync_v2';
+const INSTRUCTOR_AUTH_KEY = 'oracle_instructor_auth_v2';
 
 function formatClock(totalSeconds: number): string {
   const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
@@ -57,22 +63,35 @@ function formatClock(totalSeconds: number): string {
 }
 
 export default function App() {
-  // Mode: Student (Public / Projection View) vs Instructor (Development Workbench)
+  // Instructor authentication state (session-based)
+  const [isInstructorAuthenticated, setIsInstructorAuthenticated] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return sessionStorage.getItem(INSTRUCTOR_AUTH_KEY) === 'true';
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  // Mode: Default is ALWAYS true (Visão do Participante).
+  // Only enters Modo Instrutor if authenticated in session AND explicitly chosen.
   const [isStudentView, setIsStudentView] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const search = new URLSearchParams(window.location.search);
       const urlView = search.get('view') || search.get('mode');
-      if (urlView === 'aluno') return true;
-      if (urlView === 'instrutor') return false;
+      if (urlView === 'participante' || urlView === 'aluno') return true;
 
-      // Auto-detect public link
-      if (window.location.hostname.includes('ais-pre')) return true;
-
-      const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-      if (saved === 'aluno') return true;
-      if (saved === 'instrutor') return false;
+      const isAuth = sessionStorage.getItem(INSTRUCTOR_AUTH_KEY) === 'true';
+      const savedMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      if (isAuth && savedMode === 'instrutor') {
+        return false;
+      }
     }
-    return false;
+    return true; // Padrão: Sempre abrir na Visão do Participante
   });
 
   const [activeNav, setActiveNav] = useState<NavSection>('roteiro');
@@ -333,6 +352,44 @@ export default function App() {
     });
   };
 
+  // Drag and drop state for KeyPoint blocks
+  const [draggedKeyPointIndex, setDraggedKeyPointIndex] = useState<number | null>(null);
+
+  const handleReorderKeyPoints = (fromIndex: number, toIndex: number) => {
+    if (!currentModule || fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const keyPoints = [...currentModule.keyPoints];
+    if (fromIndex >= keyPoints.length || toIndex >= keyPoints.length) return;
+
+    const [moved] = keyPoints.splice(fromIndex, 1);
+    keyPoints.splice(toIndex, 0, moved);
+
+    setModules((prev) =>
+      prev.map((m) => (m.id === currentModule.id ? { ...m, keyPoints } : m))
+    );
+    showToast('Nova ordem dos blocos salva com sucesso!');
+  };
+
+  const handleMoveKeyPoint = (index: number, direction: 'prev' | 'next') => {
+    const target = direction === 'prev' ? index - 1 : index + 1;
+    if (!currentModule || target < 0 || target >= currentModule.keyPoints.length) return;
+    handleReorderKeyPoints(index, target);
+  };
+
+  const handleEnterInstructorMode = () => {
+    if (isInstructorAuthenticated) {
+      setIsStudentView(false);
+      showToast('Modo Instrutor ativado.');
+    } else {
+      setAuthModalOpen(true);
+    }
+  };
+
+  const handleInstructorAuthSuccess = () => {
+    setIsInstructorAuthenticated(true);
+    setIsStudentView(false);
+    showToast('Modo Instrutor desbloqueado com sucesso!');
+  };
+
   const handleDeleteCustomModule = (id: string) => {
     if (modules.length <= 1) return;
     setModules((prev) => {
@@ -534,17 +591,17 @@ export default function App() {
             <>
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Modo Aluno · Ao Vivo
+                Visão do Participante
               </span>
 
               <button
                 type="button"
-                onClick={() => setIsStudentView(false)}
+                onClick={handleEnterInstructorMode}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md transition-colors whitespace-nowrap shrink-0"
-                title="Voltar para a bancada do desenvolvedor/instrutor com simulador, conexões e brainstorm"
+                title="Acessar painel do instrutor com senha"
               >
-                <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                <span>Modo Instrutor (Dev)</span>
+                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                <span>Modo Instrutor</span>
               </button>
             </>
           ) : (
@@ -553,11 +610,11 @@ export default function App() {
                 type="button"
                 onClick={() => setIsStudentView(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-md transition-colors whitespace-nowrap shrink-0"
-                title="Projetar ou visualizar exatamente o que os alunos veem (sem simulador, sem conexões e sem brainstorm)"
+                title="Visualizar exatamente o que os participantes veem"
               >
                 <Monitor className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Visão do Aluno</span>
-                <span className="sm:hidden">Aluno</span>
+                <span className="hidden sm:inline">Visão do Participante</span>
+                <span className="sm:hidden">Participante</span>
               </button>
 
               <button
@@ -930,13 +987,42 @@ export default function App() {
                   <div className="space-y-2.5 pt-2">
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
                       <span>Clique em qualquer bloco abaixo para ver a explicação detalhada com regras e comandos:</span>
-                      <span className="text-[11px] text-rose-300 font-medium">Interativo · Clique para expandir</span>
+                      {!isStudentView ? (
+                        <span className="text-[11px] text-amber-300 font-medium bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                          Modo Instrutor · Arraste para reordenar os blocos (ordem salva para os participantes)
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-rose-300 font-medium">Interativo · Clique para expandir</span>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {currentModule.keyPoints.map((kp, i) => (
                         <div
-                          key={i}
+                          key={`${currentModule.id}-kp-${kp.title}-${i}`}
+                          draggable={!isStudentView}
+                          onDragStart={(e) => {
+                            if (!isStudentView) {
+                              e.dataTransfer.setData('text/plain', String(i));
+                              setDraggedKeyPointIndex(i);
+                            }
+                          }}
+                          onDragOver={(e) => {
+                            if (!isStudentView) {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                            }
+                          }}
+                          onDrop={(e) => {
+                            if (!isStudentView) {
+                              e.preventDefault();
+                              if (draggedKeyPointIndex !== null && draggedKeyPointIndex !== i) {
+                                handleReorderKeyPoints(draggedKeyPointIndex, i);
+                              }
+                              setDraggedKeyPointIndex(null);
+                            }
+                          }}
+                          onDragEnd={() => setDraggedKeyPointIndex(null)}
                           onClick={() => setSelectedKeyPoint(kp)}
                           role="button"
                           tabIndex={0}
@@ -946,8 +1032,57 @@ export default function App() {
                               setSelectedKeyPoint(kp);
                             }
                           }}
-                          className="group text-left rounded-lg border border-slate-800 hover:border-rose-500/70 bg-slate-900/40 hover:bg-slate-900/80 p-4 space-y-2.5 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 shadow-sm hover:shadow-md"
+                          className={`group text-left rounded-lg border bg-slate-900/40 hover:bg-slate-900/80 p-4 space-y-2.5 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 shadow-sm hover:shadow-md ${
+                            draggedKeyPointIndex === i
+                              ? 'opacity-40 border-dashed border-rose-500 scale-[0.98]'
+                              : 'border-slate-800 hover:border-rose-500/70'
+                          }`}
                         >
+                          {/* Instructor Drag Bar & Position Controls */}
+                          {!isStudentView && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="pb-2 mb-1 border-b border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400"
+                            >
+                              <div
+                                className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-200"
+                                title="Clique e arraste este bloco para mudar sua posição"
+                              >
+                                <GripVertical className="w-3.5 h-3.5 text-slate-500" />
+                                <span className="font-mono text-[10px] bg-slate-800/90 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                                  Bloco {i + 1} de {currentModule.keyPoints.length}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={i === 0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveKeyPoint(i, 'prev');
+                                  }}
+                                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-20 disabled:pointer-events-none"
+                                  title="Mover para esquerda/cima"
+                                >
+                                  <ChevronLeft className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={i === currentModule.keyPoints.length - 1}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveKeyPoint(i, 'next');
+                                  }}
+                                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-20 disabled:pointer-events-none"
+                                  title="Mover para direita/baixo"
+                                >
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
                           <div className="flex items-start justify-between gap-2">
                             <h3 className="text-sm font-semibold text-white group-hover:text-rose-200 transition-colors">
                               {kp.title}
@@ -1268,15 +1403,22 @@ export default function App() {
             ) : (
               <button
                 type="button"
-                onClick={() => setIsStudentView(false)}
+                onClick={handleEnterInstructorMode}
                 className="hover:text-slate-300 transition-colors underline"
               >
-                Alternar para Modo Instrutor
+                Acessar Modo Instrutor
               </button>
             )}
           </div>
         </div>
       </footer>
+
+      {/* Instructor Password Protection Modal */}
+      <InstructorAuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={handleInstructorAuthSuccess}
+      />
 
       {/* Module Editor Modal */}
       <ModuleEditorModal
