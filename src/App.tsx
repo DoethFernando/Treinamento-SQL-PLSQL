@@ -46,6 +46,13 @@ import { BrainstormView } from './components/BrainstormView';
 import { ModuleEditorModal } from './components/ModuleEditorModal';
 import { KeyPointDetailModal } from './components/KeyPointDetailModal';
 import { InstructorAuthModal } from './components/InstructorAuthModal';
+import {
+  applySyncToModules,
+  buildSyncPayload,
+  LiveClassroomSync,
+  publishLiveSync,
+  subscribeToLiveSync,
+} from './services/liveSyncService';
 
 const MODULES_STORAGE_KEY = 'oracle18xe_training_modules_v2';
 const IDEAS_STORAGE_KEY = 'oracle18xe_training_ideas_v2';
@@ -237,6 +244,40 @@ export default function App() {
     }
   }, [activeModuleId]);
 
+  const isApplyingRemoteSyncRef = React.useRef(false);
+
+  // Subscribe participants to real-time classroom updates from instructor
+  useEffect(() => {
+    const unsubscribe = subscribeToLiveSync((sync: LiveClassroomSync) => {
+      if (isStudentView) {
+        isApplyingRemoteSyncRef.current = true;
+        setModules((prev) => applySyncToModules(prev, sync));
+
+        if (sync.activeModuleId) {
+          setActiveModuleId(sync.activeModuleId);
+        }
+
+        if (sync.stopwatch && typeof sync.stopwatch.timerRunning === 'boolean') {
+          setTimerRunning(sync.stopwatch.timerRunning);
+          if (sync.stopwatch.timerRunning && sync.stopwatch.startedAt) {
+            const currentSeconds =
+              sync.stopwatch.secondsElapsed +
+              Math.max(0, Math.floor((Date.now() - sync.stopwatch.startedAt) / 1000));
+            setSecondsElapsed(currentSeconds);
+          } else {
+            setSecondsElapsed(sync.stopwatch.secondsElapsed);
+          }
+        }
+
+        setTimeout(() => {
+          isApplyingRemoteSyncRef.current = false;
+        }, 150);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isStudentView]);
+
   // Synchronize timer state
   useEffect(() => {
     try {
@@ -248,6 +289,14 @@ export default function App() {
       // ignore
     }
   }, [secondsElapsed, timerRunning]);
+
+  // Broadcast any instructor updates (modules, order, status, timer) to participants worldwide
+  useEffect(() => {
+    if (!isStudentView && !isApplyingRemoteSyncRef.current) {
+      const payload = buildSyncPayload(modules, activeModuleId, secondsElapsed, timerRunning);
+      publishLiveSync(payload, 300);
+    }
+  }, [isStudentView, modules, activeModuleId, timerRunning]);
 
   // Listen to cross-tab updates (e.g. Instructor changes module or status in another tab/window)
   useEffect(() => {
@@ -335,10 +384,21 @@ export default function App() {
     );
   }, [ideas, currentModule]);
 
+  const handleSelectModule = (id: string) => {
+    setActiveModuleId(id);
+    if (!isStudentView) {
+      publishLiveSync(buildSyncPayload(modules, id, secondsElapsed, timerRunning), 50);
+    }
+  };
+
   const handleToggleModuleCompleted = (id: string) => {
-    setModules((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m))
-    );
+    setModules((prev) => {
+      const next = prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m));
+      if (!isStudentView) {
+        publishLiveSync(buildSyncPayload(next, activeModuleId, secondsElapsed, timerRunning), 30);
+      }
+      return next;
+    });
   };
 
   const handleMoveModule = (index: number, direction: 'up' | 'down') => {
@@ -348,6 +408,9 @@ export default function App() {
       const copy = [...prev];
       const [moved] = copy.splice(index, 1);
       copy.splice(targetIndex, 0, moved);
+      if (!isStudentView) {
+        publishLiveSync(buildSyncPayload(copy, activeModuleId, secondsElapsed, timerRunning), 30);
+      }
       return copy;
     });
   };
@@ -363,16 +426,42 @@ export default function App() {
     const [moved] = keyPoints.splice(fromIndex, 1);
     keyPoints.splice(toIndex, 0, moved);
 
-    setModules((prev) =>
-      prev.map((m) => (m.id === currentModule.id ? { ...m, keyPoints } : m))
-    );
-    showToast('Nova ordem dos blocos salva com sucesso!');
+    setModules((prev) => {
+      const next = prev.map((m) => (m.id === currentModule.id ? { ...m, keyPoints } : m));
+      if (!isStudentView) {
+        publishLiveSync(buildSyncPayload(next, activeModuleId, secondsElapsed, timerRunning), 30);
+      }
+      return next;
+    });
+    showToast('Nova ordem dos blocos salva e sincronizada com os participantes!');
   };
 
   const handleMoveKeyPoint = (index: number, direction: 'prev' | 'next') => {
     const target = direction === 'prev' ? index - 1 : index + 1;
     if (!currentModule || target < 0 || target >= currentModule.keyPoints.length) return;
     handleReorderKeyPoints(index, target);
+  };
+
+  const handleStartTimer = () => {
+    setTimerRunning(true);
+    if (!isStudentView) {
+      publishLiveSync(buildSyncPayload(modules, activeModuleId, secondsElapsed, true), 30);
+    }
+  };
+
+  const handlePauseTimer = () => {
+    setTimerRunning(false);
+    if (!isStudentView) {
+      publishLiveSync(buildSyncPayload(modules, activeModuleId, secondsElapsed, false), 30);
+    }
+  };
+
+  const handleResetTimer = () => {
+    setTimerRunning(false);
+    setSecondsElapsed(0);
+    if (!isStudentView) {
+      publishLiveSync(buildSyncPayload(modules, activeModuleId, 0, false), 30);
+    }
   };
 
   const handleEnterInstructorMode = () => {
@@ -388,6 +477,8 @@ export default function App() {
     setIsInstructorAuthenticated(true);
     setIsStudentView(false);
     showToast('Modo Instrutor desbloqueado com sucesso!');
+    // Trigger immediate state broadcast so participants get any pending changes
+    publishLiveSync(buildSyncPayload(modules, activeModuleId, secondsElapsed, timerRunning), 50);
   };
 
   const handleDeleteCustomModule = (id: string) => {
@@ -715,44 +806,46 @@ export default function App() {
               )}
             </div>
 
-            {/* Stopwatch Controls (Instructor or Student local) */}
-            <div className="flex items-center gap-1.5">
-              {!timerRunning ? (
+            {/* Stopwatch Controls: ONLY rendered in Modo Instrutor */}
+            {!isStudentView ? (
+              <div className="flex items-center gap-1.5">
+                {!timerRunning ? (
+                  <button
+                    type="button"
+                    onClick={handleStartTimer}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded transition-colors whitespace-nowrap shrink-0"
+                    title="Iniciar cronômetro para todos os participantes"
+                  >
+                    <Play className="w-3 h-3" />
+                    <span>{secondsElapsed > 0 ? 'Retomar' : 'Iniciar'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handlePauseTimer}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-950 bg-amber-400 hover:bg-amber-300 rounded transition-colors whitespace-nowrap shrink-0"
+                    title="Pausar cronômetro para todos os participantes"
+                  >
+                    <Pause className="w-3 h-3" />
+                    <span>Pausar</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => setTimerRunning(true)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded transition-colors whitespace-nowrap shrink-0"
-                  title="Iniciar cronômetro"
-                >
-                  <Play className="w-3 h-3" />
-                  <span>{secondsElapsed > 0 ? 'Retomar' : 'Iniciar'}</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setTimerRunning(false)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-950 bg-amber-400 hover:bg-amber-300 rounded transition-colors whitespace-nowrap shrink-0"
-                  title="Pausar cronômetro"
-                >
-                  <Pause className="w-3 h-3" />
-                  <span>Pausar</span>
-                </button>
-              )}
-              {!isStudentView && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTimerRunning(false);
-                    setSecondsElapsed(0);
-                  }}
+                  onClick={handleResetTimer}
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded transition-colors whitespace-nowrap shrink-0"
                   title="Zerar cronômetro da aula"
                 >
                   <RotateCcw className="w-3 h-3" />
                   <span>Zerar</span>
                 </button>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Sincronizado</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -786,7 +879,7 @@ export default function App() {
                     >
                       <button
                         type="button"
-                        onClick={() => setActiveModuleId(mod.id)}
+                        onClick={() => handleSelectModule(mod.id)}
                         className="flex-1 min-w-0 text-left flex items-start gap-2.5 focus-visible:outline-none"
                       >
                         <span
@@ -1309,7 +1402,7 @@ export default function App() {
                   type="button"
                   disabled={activeModuleIndex === 0}
                   onClick={() =>
-                    setActiveModuleId(modules[activeModuleIndex - 1].id)
+                    handleSelectModule(modules[activeModuleIndex - 1].id)
                   }
                   className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-200 bg-slate-900 border border-slate-800 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none rounded-md transition-colors whitespace-nowrap shrink-0"
                 >
@@ -1325,7 +1418,7 @@ export default function App() {
                   type="button"
                   disabled={activeModuleIndex === modules.length - 1}
                   onClick={() =>
-                    setActiveModuleId(modules[activeModuleIndex + 1].id)
+                    handleSelectModule(modules[activeModuleIndex + 1].id)
                   }
                   className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:pointer-events-none rounded-md transition-colors whitespace-nowrap shrink-0"
                 >

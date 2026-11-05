@@ -83,7 +83,7 @@ SHOW CON_NAME; -- Retorna: XEPDB1`,
             {
               label: 'O Fim do UNLIMITED TABLESPACE na Role RESOURCE',
               description:
-                'No Oracle 11g e anteriores, conceder RESOURCE atribuía automaticamente o privilégio de sistema perigoso UNLIMITED TABLESPACE (que dava acesso a tablespaces de sistema como SYSTEM e SYSAUX). Desde o Oracle 12c, a Oracle removeu isso! Por isso hoje é OBRIGATÓRIO rodar o comando explícito de QUOTA.',
+                'No Oracle 11g e anteriores, conceder RESOURCE atribuía automaticamente o privilégio de sistema de alto risco UNLIMITED TABLESPACE (que dava acesso a tablespaces de sistema como SYSTEM e SYSAUX). Desde o Oracle 12c, a Oracle removeu isso! Por isso hoje é OBRIGATÓRIO rodar o comando explícito de QUOTA.',
             },
           ],
           codeExample: `-- Conceder cota no momento da criação do usuário:
@@ -108,13 +108,13 @@ SELECT tablespace_name, bytes / (1024*1024) AS mb_utilizados,
       },
       {
         title: 'Privilégios de Sistema vs Objeto (GRANT CONNECT, RESOURCE, CREATE...)',
-        pathOrSyntax: 'GRANT CONNECT, RESOURCE, CREATE VIEW TO ... | CREATE ANY ... (Perigo!)',
+        pathOrSyntax: 'GRANT CONNECT, RESOURCE, CREATE VIEW TO ... | CREATE ANY ... (Prática Não Recomendada)',
         detail:
           'Roles como CONNECT e RESOURCE agilizam o laboratório, mas CREATE VIEW é concedido explicitamente. Privilégios com "ANY" afetam schemas alheios e são proibidos em produção.',
         deepDive: {
           purpose:
             'Compreender o modelo de segurança do Oracle. Existem Privilégios de Sistema (ações genéricas como logar ou criar tabelas) e Privilégios de Objeto (ações em dados específicos de alguém, como dar SELECT na tabela de outro usuário).',
-          breakdownTitle: 'O que Faz Cada GRANT e os Riscos do ANY',
+          breakdownTitle: 'O que Faz Cada GRANT e as Práticas Não Recomendadas do ANY',
           breakdownItems: [
             {
               label: 'Role CONNECT',
@@ -141,10 +141,10 @@ SELECT tablespace_name, bytes / (1024*1024) AS mb_utilizados,
               code: 'GRANT CREATE PROCEDURE, CREATE TRIGGER TO usr_app;',
             },
             {
-              label: 'PERIGO EXTREMO: Privilégios com o prefixo ANY (CREATE ANY TABLE, DROP ANY TABLE...)',
+              label: 'Práticas Não Recomendadas: Privilégios com o prefixo ANY (CREATE ANY TABLE, DROP ANY TABLE...)',
               description:
-                'Privilégios comuns afetam apenas o PRÓPRIO schema. Privilégios com ANY quebram todo o isolamento: permitem ao usuário criar, alterar ou DELETAR objetos no schema de QUALQUER OUTRO USUÁRIO (inclusive SYSTEM e SYS!). Nunca conceda privilégios ANY a desenvolvedores ou usuários de aplicação em produção.',
-              code: 'GRANT DROP ANY TABLE -- PROIBIDO EM PRODUÇÃO!',
+                'Privilégios comuns afetam apenas o PRÓPRIO schema. Privilégios com ANY quebram todo o isolamento: permitem ao usuário criar, alterar ou DELETAR objetos no schema de QUALQUER OUTRO USUÁRIO (inclusive SYSTEM e SYS!). Evite conceder privilégios ANY a desenvolvedores ou usuários de aplicação em produção.',
+              code: 'GRANT DROP ANY TABLE -- PRÁTICA NÃO RECOMENDADA EM PRODUÇÃO!',
             },
             {
               label: 'Privilégio de Objeto (GRANT SELECT, INSERT ON ...)',
@@ -390,7 +390,7 @@ SELECT * FROM usr_treinamento.pedidos;`,
               code: 'Preferences > Connection > Logoff: Rollback',
             },
             {
-              label: 'Opção COMMIT (Extremamente Perigosa)',
+              label: 'Opção COMMIT (Prática Não Recomendada)',
               description:
                 'Grava no banco tudo o que estiver aberto na tela sem pedir confirmação!',
             },
@@ -1422,7 +1422,7 @@ SELECT * FROM clientes WHERE email = 'contato@alfa.com.br';`,
     recommendedAfterModuleId: 'mod-ddl-dml',
     connectsLabel: 'Ponte Módulo 2 → Módulo 3 (Armadilha do NULL no NOT IN)',
     rationale:
-      'Complementa perfeitamente o tópico de Subquery IN mostrando o perigo clássico de usar NOT IN quando há valores NULL na subconsulta e como tratar nulos com NVL.',
+      'Complementa perfeitamente o tópico de Subquery IN mostrando a armadilha clássica de usar NOT IN quando há valores NULL na subconsulta e como tratar nulos com NVL.',
     moduleData: {
       id: 'mod-bridge-null-trap',
       title: 'Tratamento de NULL (NVL) e a Armadilha do NOT IN',
@@ -1696,6 +1696,6 @@ export const INITIAL_BRAINSTORM_IDEAS: BrainstormIdea[] = [
 
 export const DEFAULT_SCRATCHPAD_TEXT = `- Lembrar de mostrar o arquivo tnsnames.ora na pasta %ORACLE_HOME%\\network\\admin e rodar 'tnsping XEPDB1' no CMD.
 - Mostrar a consulta em USER_TAB_COLS para achar colunas em tabelas sem diagrama.
-- Reforçar o perigo dos privilégios ANY (CREATE ANY TABLE, DROP ANY TABLE) em produção.
+- Reforçar por que privilégios ANY (CREATE ANY TABLE, DROP ANY TABLE) são uma prática não recomendada em produção.
 - Reforçar por que o erro ORA-01950 (falta de cota) só ocorre no INSERT e não no CREATE TABLE.
 - Explicar como o USER_SOURCE serve de 'Ctrl+F' para achar regras de negócio em procedures e triggers.`;

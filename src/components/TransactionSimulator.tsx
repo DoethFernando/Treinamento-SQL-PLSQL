@@ -144,7 +144,7 @@ export const TransactionSimulator: React.FC = () => {
       appendLog(
         'Logoff no PL/SQL Developer (Sem Rollback on Logoff!)',
         'IDE',
-        'PERIGO: As alterações pendentes sofreram COMMIT automático ao encerrar a sessão!'
+        'Prática Não Recomendada: As alterações pendentes sofreram COMMIT automático ao encerrar a sessão!'
       );
     }
   };
@@ -339,7 +339,7 @@ export const TransactionSimulator: React.FC = () => {
                       className={
                         item.kind === 'DDL'
                           ? 'text-amber-300'
-                          : item.outcome.includes('PERIGO')
+                          : item.outcome.includes('Prática Não Recomendada')
                           ? 'text-rose-300'
                           : 'text-slate-400'
                       }
