@@ -140,12 +140,31 @@ export function applySyncToModules(
   });
 }
 
+// BroadcastChannel for instant local cross-tab sync in the same browser (<1ms latency)
+let localClassroomChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    localClassroomChannel = new BroadcastChannel('oracle18xe_classroom_sync_v4');
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Publish updated classroom state from instructor to all participants worldwide
  */
 let publishDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function publishLiveSync(payload: LiveClassroomSync, debounceMs = 100): void {
+  // 1. Instant local delivery between open tabs on the same computer (<1ms)
+  if (localClassroomChannel) {
+    try {
+      localClassroomChannel.postMessage(payload);
+    } catch {
+      // ignore
+    }
+  }
+
   if (publishDebounceTimer) {
     clearTimeout(publishDebounceTimer);
     publishDebounceTimer = null;
@@ -216,7 +235,20 @@ export function subscribeToLiveSync(
 ): () => void {
   let isSubscribed = true;
 
-  // 1. Initial fetch (runs immediately on F5 or first page open)
+  // 1. Instant local BroadcastChannel listener (<1ms) for split-screen tabs on the same device
+  const handleLocalChannelMessage = (event: MessageEvent) => {
+    if (!isSubscribed) return;
+    if (event.data && typeof event.data === 'object' && event.data.version) {
+      console.log('[LiveSync] Atualização recebida via BroadcastChannel local:', event.data);
+      onSyncReceived(event.data as LiveClassroomSync);
+    }
+  };
+
+  if (localClassroomChannel) {
+    localClassroomChannel.addEventListener('message', handleLocalChannelMessage);
+  }
+
+  // 2. Initial fetch (runs immediately on F5 or first page open)
   const fetchLatestState = async () => {
     try {
       const res = await fetch(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}/json?poll=1`);
@@ -249,7 +281,7 @@ export function subscribeToLiveSync(
 
   fetchLatestState();
 
-  // 2. Real-Time SSE Listener (sub-second instant delivery when instructor changes anything)
+  // 3. Real-Time SSE Listener (sub-second instant delivery when instructor changes anything)
   let eventSource: EventSource | null = null;
   try {
     eventSource = new EventSource(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}/sse`);
@@ -277,7 +309,7 @@ export function subscribeToLiveSync(
     console.warn('SSE indisponível, usando fallback por intervalo:', err);
   }
 
-  // 3. Fallback Interval (every 5 seconds in case SSE disconnected)
+  // 4. Fallback Interval (every 5 seconds in case SSE disconnected)
   const fallbackInterval = setInterval(() => {
     if (isSubscribed) {
       fetchLatestState();
@@ -287,6 +319,9 @@ export function subscribeToLiveSync(
   return () => {
     isSubscribed = false;
     clearInterval(fallbackInterval);
+    if (localClassroomChannel) {
+      localClassroomChannel.removeEventListener('message', handleLocalChannelMessage);
+    }
     if (eventSource) {
       eventSource.close();
     }
