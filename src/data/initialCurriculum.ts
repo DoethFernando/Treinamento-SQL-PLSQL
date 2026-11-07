@@ -9,214 +9,51 @@ export const INITIAL_MODULES: TrainingModule[] = [
     category: 'Administração Inicial',
     completed: false,
     conceptSummary:
-      'No Oracle, um Usuário (USER) equivale diretamente a um Schema (conjunto próprio de tabelas, views e rotinas). No Oracle 18c XE, a arquitetura Multitenant exige conectar-se ao Pluggable Database (XEPDB1) para criar usuários de negócio, definindo cota de armazenamento na tablespace e privilégios granulares via GRANT, além de configurar a resolução de rede via tnsnames.ora.',
+      'Nesta etapa abordaremos as estruturas que temos em nossos clientes ja previamente instalado e rodando varios cenarios de bancos de dados instalados, todos Oracle, porem com versões e infra estruturas diversificadas, bancos rodando na nuvem na OCI servidos pela propria HISOWER (VIG/Triunfo/Petrovina...), bancos rodando na OCI proprietario de Clientes (Dois Marcos), bancos rodando na AWS proprietario de Clientes (SSF,Trader), bancos rodando servidor local da Hisower (AGRICAMP, BIOSERVICOS, Nova Esperança...), bancos rodando servidor local no cliente (Sao Jeronimo, Torre, IMA, Condeagro...). Por aqui tambem veremos como acessamos esses clientes, Oracle Client Admin / instantclient, configuracao de TNSNAMES. Comandos de criação de USERS e Atribuição de privilégios como Grants e Quotas.',
     keyPoints: [
       {
-        title: 'Conexão no Serviço XEPDB1 (Oracle 18c XE)',
-        pathOrSyntax: 'localhost:1521/XEPDB1 (Pluggable Database)',
-        detail:
-          'Conecte no serviço XEPDB1 como SYSTEM para criar usuários de aplicação sem erro ORA-65096 (usuário comum inválido no CDB$ROOT).',
-        deepDive: {
-          purpose:
-            'Entender a arquitetura Multitenant (CDB x PDB) do Oracle 18c XE. O banco vem com uma instância raiz (CDB$ROOT) que gerencia o motor e um Pluggable Database plugável (XEPDB1) onde residem as tabelas e schemas da empresa.',
-          breakdownTitle: 'Conceitos Essenciais da Conexão',
-          breakdownItems: [
-            {
-              label: 'Container Raiz (CDB$ROOT / SID: XE)',
-              description:
-                'Destinado à administração do banco e da Oracle. Se tentar criar um usuário aqui com CREATE USER usr_treinamento, o Oracle rejeita com ORA-65096 porque exige o prefixo global C##.',
-              code: 'ORA-65096: invalid common user or role name',
-            },
-            {
-              label: 'Pluggable Database (PDB / Serviço: XEPDB1)',
-              description:
-                'É o banco de dados da aplicação! Aqui você pode criar usuários com nomes normais (ex: usr_treinamento) e suas tabelas de negócio.',
-              code: 'ALTER SESSION SET CONTAINER = XEPDB1;',
-            },
-            {
-              label: 'Parâmetro de Conexão no PL/SQL Developer',
-              description:
-                'No campo Database da tela de login, informe localhost:1521/XEPDB1 ou configure o alias XEPDB1 no tnsnames.ora.',
-              code: 'localhost:1521/XEPDB1',
-            },
-          ],
-          codeExample: `-- Conectar como SYSDBA ou SYSTEM apontando para o PDB:
-sqlplus system/SuaSenha@localhost:1521/XEPDB1
-
--- Ou alternar a sessão atual para o PDB dentro do SQL*Plus:
-ALTER SESSION SET CONTAINER = XEPDB1;
-SHOW CON_NAME; -- Retorna: XEPDB1`,
-          productionGotchas: [
-            'Nunca crie tabelas da sua aplicação dentro do CDB$ROOT.',
-            'Se reiniciar a máquina e o XEPDB1 estiver fechado (MOUNTED), execute como SYSDBA: ALTER PLUGGABLE DATABASE XEPDB1 OPEN;',
-          ],
-        },
-      },
-      {
-        title: 'Cota de Armazenamento (QUOTA)',
-        pathOrSyntax: 'QUOTA UNLIMITED ON users (ou QUOTA 500M ON users)',
-        detail:
-          'Mesmo com CREATE TABLE concedido, sem cota na tablespace o usuário recebe erro ORA-01950 ao tentar inserir a primeira linha de dados.',
-        deepDive: {
-          purpose:
-            'A Cota de Armazenamento (QUOTA) define o limite físico de espaço que os dados de um usuário podem ocupar dentro de uma Tablespace. Criar uma tabela (DDL) apenas grava a definição no dicionário; quando a primeira linha é inserida (INSERT), o Oracle tenta alocar blocos de dados físicos na tablespace USERS. Sem cota, a inserção é bloqueada imediatamente.',
-          breakdownTitle: 'Tipos de Cota e Como Funcionam',
-          breakdownItems: [
-            {
-              label: 'QUOTA UNLIMITED ON <tablespace>',
-              description:
-                'O schema pode crescer livremente até o limite físico do arquivo (.dbf) da tablespace. Padrão para donos de aplicações em desenvolvimento.',
-              code: 'QUOTA UNLIMITED ON users',
-            },
-            {
-              label: 'QUOTA <Tamanho> ON <tablespace>',
-              description:
-                'Limita o schema a uma quantidade fixa em Megabytes ou Gigabytes. Prática essencial em bancos multi-cliente ou provedores para impedir que um usuário esgote o disco.',
-              code: 'QUOTA 200M ON users',
-            },
-            {
-              label: 'QUOTA 0 ON <tablespace>',
-              description:
-                'Revoga a cota para novos registros. Tabelas existentes continuam legíveis, mas qualquer novo INSERT ou expansão de tabela falhará com ORA-01950.',
-              code: 'QUOTA 0 ON users',
-            },
-            {
-              label: 'O Fim do UNLIMITED TABLESPACE na Role RESOURCE',
-              description:
-                'No Oracle 11g e anteriores, conceder RESOURCE atribuía automaticamente o privilégio de sistema de alto risco UNLIMITED TABLESPACE (que dava acesso a tablespaces de sistema como SYSTEM e SYSAUX). Desde o Oracle 12c, a Oracle removeu isso! Por isso hoje é OBRIGATÓRIO rodar o comando explícito de QUOTA.',
-            },
-          ],
-          codeExample: `-- Conceder cota no momento da criação do usuário:
-CREATE USER usr_treinamento IDENTIFIED BY Treina123#
-  DEFAULT TABLESPACE users
-  QUOTA UNLIMITED ON users;
-
--- Ou atribuir cota posteriormente se o usuário já existir:
-ALTER USER usr_treinamento QUOTA UNLIMITED ON users;
--- Ou cota limitada:
-ALTER USER usr_treinamento QUOTA 250M ON users;
-
--- Consultar cotas concedidas atualmente no banco:
-SELECT tablespace_name, bytes / (1024*1024) AS mb_utilizados,
-       max_bytes / (1024*1024) AS mb_limite_maximo
-  FROM user_ts_quotas;`,
-          productionGotchas: [
-            'Erro ORA-01950: no privileges on tablespace \'USERS\' acontece no primeiro INSERT, nunca no CREATE TABLE.',
-            'Nunca conceda cota na tablespace SYSTEM nem SYSAUX para usuários comuns de aplicação.',
-          ],
-        },
-      },
-      {
-        title: 'Privilégios de Sistema vs Objeto (GRANT CONNECT, RESOURCE, CREATE...)',
-        pathOrSyntax: 'GRANT CONNECT, RESOURCE, CREATE VIEW TO ... | CREATE ANY ... (Prática Não Recomendada)',
-        detail:
-          'Roles como CONNECT e RESOURCE agilizam o laboratório, mas CREATE VIEW é concedido explicitamente. Privilégios com "ANY" afetam schemas alheios e são proibidos em produção.',
-        deepDive: {
-          purpose:
-            'Compreender o modelo de segurança do Oracle. Existem Privilégios de Sistema (ações genéricas como logar ou criar tabelas) e Privilégios de Objeto (ações em dados específicos de alguém, como dar SELECT na tabela de outro usuário).',
-          breakdownTitle: 'O que Faz Cada GRANT e as Práticas Não Recomendadas do ANY',
-          breakdownItems: [
-            {
-              label: 'Role CONNECT',
-              description:
-                'No Oracle moderno, contém apenas o privilégio básico CREATE SESSION. Sem ele, o usuário não consegue sequer autenticar no banco.',
-              code: 'GRANT CONNECT TO usr_app;',
-            },
-            {
-              label: 'Role RESOURCE',
-              description:
-                'Role padrão para desenvolvedores criarem objetos no PRÓPRIO schema: CREATE TABLE, CREATE SEQUENCE, CREATE PROCEDURE, CREATE TRIGGER, CREATE TYPE, CREATE CLUSTER. (Atenção: NÃO inclui CREATE VIEW nem QUOTA).',
-              code: 'GRANT RESOURCE TO usr_app;',
-            },
-            {
-              label: 'CREATE VIEW',
-              description:
-                'Permite criar visões virtuais dentro do próprio schema. Deve ser concedido explicitamente, pois não faz parte da role RESOURCE.',
-              code: 'GRANT CREATE VIEW TO usr_app;',
-            },
-            {
-              label: 'CREATE PROCEDURE / CREATE TRIGGER',
-              description:
-                'Permite compilar rotinas PL/SQL (Procedures, Functions, Packages) e gatilhos dentro do próprio schema.',
-              code: 'GRANT CREATE PROCEDURE, CREATE TRIGGER TO usr_app;',
-            },
-            {
-              label: 'Práticas Não Recomendadas: Privilégios com o prefixo ANY (CREATE ANY TABLE, DROP ANY TABLE...)',
-              description:
-                'Privilégios comuns afetam apenas o PRÓPRIO schema. Privilégios com ANY quebram todo o isolamento: permitem ao usuário criar, alterar ou DELETAR objetos no schema de QUALQUER OUTRO USUÁRIO (inclusive SYSTEM e SYS!). Evite conceder privilégios ANY a desenvolvedores ou usuários de aplicação em produção.',
-              code: 'GRANT DROP ANY TABLE -- PRÁTICA NÃO RECOMENDADA EM PRODUÇÃO!',
-            },
-            {
-              label: 'Privilégio de Objeto (GRANT SELECT, INSERT ON ...)',
-              description:
-                'Concedido pelo dono da tabela para outro usuário consultar ou alterar suas linhas sem dar permissão administrativa.',
-              code: 'GRANT SELECT ON clientes TO usr_consulta;',
-            },
-          ],
-          codeExample: `-- Concessão correta e segura para usuário de desenvolvimento (como SYSTEM em XEPDB1):
-GRANT CONNECT, RESOURCE, CREATE VIEW TO usr_treinamento;
-
--- Concessão de Privilégio de Objeto (como USR_TREINAMENTO):
-GRANT SELECT ON pedidos TO usr_auditor;
--- Conceder apenas SELECT e UPDATE em colunas específicas:
-GRANT SELECT, UPDATE (status_pedido) ON pedidos TO usr_operador;
-
--- Consultar privilégios do usuário atual:
-SELECT * FROM session_privs;`,
-          productionGotchas: [
-            'CREATE ANY TABLE permite que um usuário mal-intencionado injete código ou crie tabelas dentro do schema SYS.',
-            'Se criar uma View baseada em tabelas de outro usuário, as permissões nas tabelas base precisam ter sido concedidas diretamente, não através de ROLES.',
-          ],
-        },
-      },
-      {
         title: 'Configuração e Para Que Serve o TNSNAMES.ORA',
-        pathOrSyntax: '%ORACLE_HOME%\\network\\admin\\tnsnames.ora (ou via TNS_ADMIN)',
+        pathOrSyntax: '%ORACLE_HOME%\\network\\admin\\tnsnames.ora (ou via TNS_ADMIN = instantclient)',
         detail:
-          'Arquivo de resolução de nomes que mapeia o alias amigável (ex: XEPDB1) para Host, porta 1521 e SERVICE_NAME. Essencial para conectar o PL/SQL Developer e validado com tnsping.',
+          'Arquivo de resolução de nomes que mapeia o alias amigável TREINAMENTO para Host, porta 1521 e SERVICE_NAME (XEPDB1). Essencial para conexão de clientes e validado via tnsping.',
         deepDive: {
           purpose:
-            'O TNSNAMES.ORA é o arquivo de configuração de rede do Oracle Net Services. Ele funciona exatamente como um "DNS local de bancos de dados": mapeia um apelido curto e amigável (ex: XEPDB1 ou BANCO_HOMOLOG) para a localização física real (IP do servidor, porta TCP 1521 e o nome do serviço registrado no Listener).',
-          breakdownTitle: 'Estrutura do Arquivo e Como Configurar',
+            'O TNSNAMES.ORA é o arquivo de configuração de rede do Oracle Net Services. Ele funciona exatamente como um DNS local para bancos de dados Oracle: mapeia um apelido amigável (alias como TREINAMENTO) para o endereço IP do servidor, porta TCP (padrão 1521) e o nome do serviço registrado no Listener (SERVICE_NAME). Permite conectar o PL/SQL Developer, Instant Client e ferramentas corporativas em ambientes locais, OCI e AWS.',
+          breakdownTitle: 'Estrutura do TNSNAMES e Alias TREINAMENTO',
           breakdownItems: [
             {
-              label: 'Alias de Rede (Nome do Bloco)',
+              label: 'Definição do Alias TREINAMENTO',
+              code: 'TREINAMENTO = (DESCRIPTION = ...)',
               description:
-                'O texto no início da entrada (ex: XEPDB1). É o que você digita no campo "Database" do PL/SQL Developer ou após o @ no SQL*Plus.',
-              code: 'XEPDB1 = (...)',
+                'Apelido amigável configurado no tnsnames.ora. É esse alias que você informará no campo Database do PL/SQL Developer.',
             },
             {
               label: 'HOST e PORT',
-              description:
-                'HOST indica o IP ou nome da máquina onde o Oracle está rodando (localhost ou 192.168.x.x). PORT é a porta TCP do Listener (padrão 1521).',
               code: '(ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))',
+              description:
+                'HOST aponta para o servidor onde o Oracle está em execução (localhost no laboratório ou IP/DNS privado na nuvem OCI/AWS). PORT é 1521.',
             },
             {
               label: 'SERVICE_NAME vs SID',
+              code: '(CONNECT_DATA = (SERVER = DEDICATED)(SERVICE_NAME = XEPDB1))',
               description:
-                'No Oracle 18c XE multitenant, use sempre SERVICE_NAME = XEPDB1. Bancos legados (Oracle 11g e anteriores) usavam a chave (SID = XE). Conectar em SID=XE no 18c te jogará no CDB$ROOT!',
-              code: '(CONNECT_DATA = (SERVICE_NAME = XEPDB1))',
+                'No Oracle 18c XE multitenant, aponte sempre para o Pluggable Database (SERVICE_NAME = XEPDB1). Não utilize SID = XE para aplicações de negócio.',
             },
             {
-              label: 'Onde Encontrar o Arquivo no Sistema Operacional',
+              label: 'Localização do Arquivo & TNS_ADMIN',
+              code: 'TNS_ADMIN = C:\\Oracle\\instantclient\\network\\admin',
               description:
-                'Localização padrão no Windows: C:\\app\\client\\...\\network\\admin\\tnsnames.ora ou na pasta do Oracle XE (C:\\app\\oracle\\product\\18.0.0\\dbhomeXE\\network\\admin\\tnsnames.ora).',
+                'Se usar Oracle Client Admin: %ORACLE_HOME%\\network\\admin\\tnsnames.ora. Se usar Instant Client portátil: crie a variável de ambiente de sistema TNS_ADMIN apontando para o diretório onde o tnsnames.ora foi salvo.',
             },
             {
-              label: 'Variável de Ambiente TNS_ADMIN',
+              label: 'Validação com TNSPING',
+              code: 'tnsping TREINAMENTO',
               description:
-                'Se você usa o PL/SQL Developer com Instant Client (sem instalador completo), crie uma variável de ambiente do Windows chamada TNS_ADMIN apontando para a pasta onde você salvou o tnsnames.ora.',
-              code: 'TNS_ADMIN = C:\\Oracle\\InstantClient\\network\\admin',
-            },
-            {
-              label: 'Utilitário de Teste: TNSPING',
-              description:
-                'Permite testar se o Oracle Listener está ativo e alcançável na rede antes mesmo de abrir qualquer software.',
-              code: 'tnsping XEPDB1',
+                'Utilitário de linha de comando para testar se o Listener está ativo e se o alias foi resolvido antes mesmo de abrir o PL/SQL Developer.',
             },
           ],
-          codeExample: `# Conteúdo modelo para colar dentro do arquivo tnsnames.ora:
-XEPDB1 =
+          codeExample: `# Entrada configurada no tnsnames.ora para o laboratório:
+TREINAMENTO =
   (DESCRIPTION =
     (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
     (CONNECT_DATA =
@@ -225,15 +62,147 @@ XEPDB1 =
     )
   )
 
-# Teste de conectividade no CMD (Prompt de Comando):
-tnsping XEPDB1
-# Retorno de sucesso esperado:
-# Attempting to contact (DESCRIPTION = (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521)) (CONNECT_DATA = (SERVICE_NAME = XEPDB1)))
+# Teste de resolução de conectividade no CMD / Prompt de Comando:
+tnsping TREINAMENTO
+
+# Retorno esperado:
+# Attempting to contact (DESCRIPTION = (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521)) (CONNECT_DATA = (SERVER = DEDICATED)(SERVICE_NAME = XEPDB1)))
 # OK (10 msec)`,
           productionGotchas: [
-            'Erro TNS-12541: TNS:no listener significa que o serviço do Listener está parado no servidor ou bloqueado pelo Firewall do Windows na porta 1521.',
-            'Erro TNS-03505: Failed to resolve name significa que o alias digitado não existe no tnsnames.ora ou o arquivo não está no caminho do TNS_ADMIN.',
-            'No PL/SQL Developer, vá em Configure > Preferences > Oracle > Connection e verifique se os campos "Oracle Home" e "OCI Library" estão preenchidos.',
+            'Erro TNS-03505: Failed to resolve name indica que o alias TREINAMENTO não foi encontrado ou a variável TNS_ADMIN está apontando para o caminho errado.',
+            'Erro TNS-12541: TNS:no listener indica que o serviço de rede do Oracle está parado no servidor ou a porta 1521 está bloqueada por firewall/security list (OCI/AWS).',
+            'No PL/SQL Developer, confira em Configure > Preferences > Oracle > Connection se o Oracle Home e a OCI Library estão selecionados corretamente.',
+          ],
+        },
+      },
+      {
+        title: 'Conexão no Alias TREINAMENTO (Oracle 18c XE)',
+        pathOrSyntax: 'informar em LogonDatabase o ALIAS TREINAMENTO criado no tnsnames.',
+        detail:
+          'Conexão ao PDB da aplicação via alias TREINAMENTO para criação de usuários (SOFTSUL, FINANC), cotas, concessão de privilégios (CONNECT, RESOURCE, DBA, UNLIMITED TABLESPACE, CREATE ANY VIEW, DEBUG CONNECT SESSION), gestão de ROLES e comando REVOKE.',
+        deepDive: {
+          purpose:
+            'Compreender a conexão no Pluggable Database (PDB) e a gestão completa de Usuários e Segurança no Oracle. No Oracle 18c XE, o banco possui a raiz CDB$ROOT (apenas para administração da instância global) e o PDB XEPDB1 (onde residem os schemas e tabelas da empresa). Criar usuários na raiz exige prefixo C## e dispara erro ORA-65096; por isso, todas as conexões de negócio devem ser feitas no PDB via alias TREINAMENTO.',
+          breakdownTitle: 'Detalhamento de Conexão, GRANTs, ROLES e REVOKE',
+          breakdownItems: [
+            {
+              label: 'Conexão no PL/SQL Developer',
+              code: 'LogonDatabase: TREINAMENTO',
+              description:
+                'Na tela de logon do PL/SQL Developer, informar em LogonDatabase o ALIAS TREINAMENTO criado no tnsnames. Usuário de administração inicial: SYSTEM.',
+            },
+            {
+              label: 'CDB$ROOT vs Pluggable Database (PDB)',
+              code: 'ORA-65096: invalid common user or role name',
+              description:
+                'Se conectar no CDB$ROOT (SID: XE) e tentar criar usuários comuns, o Oracle rejeita com ORA-65096 exigindo prefixo C##. Nunca crie tabelas da sua aplicação dentro do CDB$ROOT.',
+            },
+            {
+              label: 'GRANT CONNECT',
+              code: 'GRANT CONNECT TO <user>;',
+              description:
+                'Permite autenticar no banco de dados. No Oracle moderno, contém unicamente o privilégio de sistema CREATE SESSION. Sem ele, o login é recusado.',
+            },
+            {
+              label: 'GRANT RESOURCE',
+              code: 'GRANT RESOURCE TO <user>;',
+              description:
+                'Papel padrão de desenvolvimento para criação de objetos no próprio schema: CREATE TABLE, CREATE SEQUENCE, CREATE PROCEDURE, CREATE TRIGGER, CREATE TYPE, CREATE CLUSTER. (Atenção: Não inclui CREATE VIEW nem cota de disco).',
+            },
+            {
+              label: 'GRANT DBA',
+              code: 'GRANT DBA TO <user>;',
+              description:
+                'Papel administrativo de altíssimo poder. Concede quase todos os privilégios do banco (visão do dicionário, alteração de parâmetros e controle sobre schemas alheios). Em produção, viole apenas com aprovação formal.',
+            },
+            {
+              label: 'GRANT UNLIMITED TABLESPACE',
+              code: 'GRANT UNLIMITED TABLESPACE TO <user>;',
+              description:
+                'Privilégio de sistema que concede poder ilimitado de escrita em qualquer tablespace do banco (USERS, SYSTEM, SYSAUX). Em produção, o recomendado é usar cota controlada (QUOTA <tamanho> ON <tablespace>).',
+            },
+            {
+              label: 'GRANT CREATE ANY VIEW',
+              code: 'GRANT CREATE ANY VIEW TO <user>;',
+              description:
+                'Privilégio que autoriza criar views em QUALQUER schema do banco, não apenas no próprio. Quebra a segregação entre usuários e deve ser evitado em produção.',
+            },
+            {
+              label: 'GRANT DEBUG CONNECT SESSION',
+              code: 'GRANT DEBUG CONNECT SESSION TO <user>;',
+              description:
+                'Necessário para que o PL/SQL Developer faça depuração passo a passo (F9 / Debug) de procedures e packages via conexão de socket/JDWP.',
+            },
+            {
+              label: 'Conceito e Criação de ROLE',
+              code: 'CREATE ROLE r_desenvolvedor;',
+              description:
+                'Uma ROLE é um grupo nomeado de privilégios. Em vez de atribuir dezenas de GRANTs a cada usuário individualmente, cria-se a ROLE, concedem-se os privilégios a ela e depois a ROLE é atribuída aos usuários.',
+            },
+            {
+              label: 'Comando REVOKE',
+              code: 'REVOKE <privilégio_ou_role> FROM <user>;',
+              description:
+                'Comando DCL utilizado para remover privilégios ou roles concedidos anteriormente. Pode revogar privilégios de sistema, privilégios de objeto ou roles.',
+            },
+          ],
+          codeExample: `-- ====================================================================
+-- SCRIPT REAL DE CRIAÇÃO DE USUÁRIOS E PRIVILÉGIOS (Executar como SYSTEM)
+-- ====================================================================
+CREATE USER SOFTSUL IDENTIFIED BY softsul ;
+GRANT CONNECT TO  SOFTSUL;
+GRANT RESOURCE TO SOFTSUL;
+GRANT DBA TO SOFTSUL;
+GRANT UNLIMITED TABLESPACE  TO SOFTSUL;
+GRANT CREATE ANY VIEW       TO SOFTSUL ;
+GRANT DEBUG CONNECT SESSION TO SOFTSUL;
+
+CREATE USER FINANC IDENTIFIED BY PROGRESSO ;
+GRANT CONNECT TO  FINANC;
+GRANT RESOURCE TO FINANC;
+GRANT UNLIMITED TABLESPACE  TO FINANC;
+GRANT CREATE ANY VIEW       TO FINANC ;
+GRANT DEBUG CONNECT SESSION TO FINANC;
+GRANT DBA TO FINANC;
+
+-- ====================================================================
+-- GESTÃO DE ROLES (Exemplo Prático - Princípio do Menor Privilégio)
+-- ====================================================================
+-- 1. Criar uma Role padronizada para equipe de desenvolvimento:
+CREATE ROLE r_dev_aplicacao;
+
+-- 2. Conceder privilégios controlados para a Role:
+GRANT CONNECT, RESOURCE, CREATE VIEW TO r_dev_aplicacao;
+GRANT DEBUG CONNECT SESSION TO r_dev_aplicacao;
+
+-- 3. Atribuir a Role aos usuários:
+GRANT r_dev_aplicacao TO SOFTSUL;
+GRANT r_dev_aplicacao TO FINANC;
+
+-- 4. Definir cota segura na tablespace específica (em vez de UNLIMITED TABLESPACE):
+ALTER USER SOFTSUL QUOTA UNLIMITED ON users;
+ALTER USER FINANC QUOTA 500M ON users;
+
+-- ====================================================================
+-- COMANDO REVOKE (Exemplos Práticos de Remoção de Acessos)
+-- ====================================================================
+-- 1. Remover privilégio de sistema de alto risco:
+REVOKE CREATE ANY VIEW FROM SOFTSUL;
+
+-- 2. Remover papel de DBA quando migrar de laboratório para homologação:
+REVOKE DBA FROM SOFTSUL;
+REVOKE DBA FROM FINANC;
+
+-- 3. Remover privilégio de objeto:
+REVOKE SELECT ON clientes FROM FINANC;
+
+-- 4. Remover uma Role atribuída a um usuário:
+REVOKE r_dev_aplicacao FROM FINANC;`,
+          productionGotchas: [
+            'Princípio do Menor Privilégio: Nunca conceda GRANT DBA para usuários de aplicação em ambiente de produção.',
+            'Riscos do CREATE ANY VIEW: Permite que um usuário crie views com compilação forçada em schemas de sistema ou capture dados de outros módulos sem autorização.',
+            'UNLIMITED TABLESPACE versus QUOTA: O grant UNLIMITED TABLESPACE permite gastar espaço até nas tablespaces SYSTEM e SYSAUX. Em ambientes compartilhados, use sempre QUOTA específica na tablespace da aplicação.',
+            'Nunca crie tabelas da sua aplicação dentro do CDB$ROOT.',
           ],
         },
       },

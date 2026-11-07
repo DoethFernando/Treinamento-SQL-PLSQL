@@ -160,7 +160,7 @@ export const BrainstormView: React.FC<BrainstormViewProps> = ({
                   <option value="geral">Roteiro Geral</option>
                   {modules.map((m, idx) => (
                     <option key={m.id} value={m.id}>
-                      {String(idx).padStart(2, '0')}. {m.shortTitle}
+                      {String(idx + 1).padStart(2, '0')}. {m.shortTitle}
                     </option>
                   ))}
                 </select>

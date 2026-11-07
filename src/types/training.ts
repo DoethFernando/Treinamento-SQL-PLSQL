@@ -41,6 +41,7 @@ export interface TrainingModule {
   durationMinutes: number;
   category: string;
   completed: boolean;
+  completedDurationSeconds?: number;
   isCustom?: boolean;
   conceptSummary: string;
   keyPoints: KeyPointItem[];

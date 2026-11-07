@@ -6,10 +6,10 @@ const NTFY_BASE_URL = 'https://ntfy.sh';
 export interface LiveClassroomSync {
   version: number;
   updatedAt: number;
-  activeModuleId: string;
+  activeModuleId: string; // ID do módulo que o instrutor está apresentando
   completedModuleIds: string[];
-  keyPointOrders: Record<string, string[]>; // moduleId -> array of keypoint titles in current order
-  customModules?: TrainingModule[];
+  moduleDurations: Record<string, number>; // moduleId -> segundos registrados
+  modules: TrainingModule[]; // Lista completa e sincronizada de módulos (com títulos e blocos atualizados)
   stopwatch: {
     secondsElapsed: number;
     timerRunning: boolean;
@@ -24,21 +24,21 @@ export function buildSyncPayload(
   timerRunning: boolean
 ): LiveClassroomSync {
   const completedModuleIds = modules.filter((m) => m.completed).map((m) => m.id);
-  const keyPointOrders: Record<string, string[]> = {};
+  const moduleDurations: Record<string, number> = {};
 
   modules.forEach((mod) => {
-    keyPointOrders[mod.id] = mod.keyPoints.map((kp) => kp.title);
+    if (mod.completedDurationSeconds !== undefined) {
+      moduleDurations[mod.id] = mod.completedDurationSeconds;
+    }
   });
 
-  const customModules = modules.filter((m) => m.isCustom);
-
   return {
-    version: 1,
+    version: 2,
     updatedAt: Date.now(),
     activeModuleId,
     completedModuleIds,
-    keyPointOrders,
-    customModules: customModules.length > 0 ? customModules : undefined,
+    moduleDurations,
+    modules,
     stopwatch: {
       secondsElapsed,
       timerRunning,
@@ -51,41 +51,21 @@ export function applySyncToModules(
   currentModules: TrainingModule[],
   sync: LiveClassroomSync
 ): TrainingModule[] {
-  const customMap = new Map<string, TrainingModule>();
-  if (sync.customModules) {
-    sync.customModules.forEach((cm) => customMap.set(cm.id, cm));
+  // If the sync includes the full modules list, prefer it to preserve content edits and block order
+  if (Array.isArray(sync.modules) && sync.modules.length > 0) {
+    return sync.modules.map((mod) => ({
+      ...mod,
+      completed: sync.completedModuleIds.includes(mod.id),
+      completedDurationSeconds: sync.moduleDurations?.[mod.id] ?? mod.completedDurationSeconds,
+    }));
   }
 
-  // Base list containing all current modules plus any new custom ones from instructor
-  const baseList = [...currentModules];
-  customMap.forEach((cm, id) => {
-    if (!baseList.some((m) => m.id === id)) {
-      baseList.push(cm);
-    }
-  });
-
-  return baseList.map((mod) => {
-    const isCompleted = sync.completedModuleIds.includes(mod.id);
-    const savedOrder = sync.keyPointOrders[mod.id];
-
-    let reorderedKeyPoints = [...mod.keyPoints];
-    if (savedOrder && savedOrder.length > 0) {
-      const orderMap = new Map<string, number>();
-      savedOrder.forEach((title, idx) => orderMap.set(title, idx));
-
-      reorderedKeyPoints.sort((a, b) => {
-        const orderA = orderMap.has(a.title) ? orderMap.get(a.title)! : 999;
-        const orderB = orderMap.has(b.title) ? orderMap.get(b.title)! : 999;
-        return orderA - orderB;
-      });
-    }
-
-    return {
-      ...mod,
-      completed: isCompleted,
-      keyPoints: reorderedKeyPoints,
-    };
-  });
+  // Fallback for partial/legacy payloads
+  return currentModules.map((mod) => ({
+    ...mod,
+    completed: sync.completedModuleIds.includes(mod.id),
+    completedDurationSeconds: sync.moduleDurations?.[mod.id] ?? mod.completedDurationSeconds,
+  }));
 }
 
 /**

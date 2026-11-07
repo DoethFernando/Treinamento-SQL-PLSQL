@@ -24,7 +24,7 @@ export const MasterScriptsView: React.FC<MasterScriptsViewProps> = ({
       .filter((m) => m.ddlScript && m.ddlScript.trim().length > 0)
       .map(
         (m, i) =>
-          `-- =====================================================================\n-- [${String(i).padStart(2, '0')}] ${m.title.toUpperCase()} (DDL)\n-- =====================================================================\n${m.ddlScript}`
+          `-- =====================================================================\n-- [${String(i + 1).padStart(2, '0')}] ${m.title.toUpperCase()} (DDL)\n-- =====================================================================\n${m.ddlScript}`
       )
       .join('\n\n');
   }, [filteredModules]);
@@ -34,7 +34,7 @@ export const MasterScriptsView: React.FC<MasterScriptsViewProps> = ({
       .filter((m) => m.dmlScript && m.dmlScript.trim().length > 0)
       .map(
         (m, i) =>
-          `-- =====================================================================\n-- [${String(i).padStart(2, '0')}] ${m.title.toUpperCase()} (DML - POPULAÇÃO)\n-- =====================================================================\n${m.dmlScript}`
+          `-- =====================================================================\n-- [${String(i + 1).padStart(2, '0')}] ${m.title.toUpperCase()} (DML - POPULAÇÃO)\n-- =====================================================================\n${m.dmlScript}`
       )
       .join('\n\n');
   }, [filteredModules]);
@@ -43,7 +43,7 @@ export const MasterScriptsView: React.FC<MasterScriptsViewProps> = ({
     return filteredModules
       .map(
         (m, i) =>
-          `-- =====================================================================\n-- [${String(i).padStart(2, '0')}] GABARITO: ${m.exercise.title.toUpperCase()}\n-- =====================================================================\n${m.exercise.solutionSql}`
+          `-- =====================================================================\n-- [${String(i + 1).padStart(2, '0')}] GABARITO: ${m.exercise.title.toUpperCase()}\n-- =====================================================================\n${m.exercise.solutionSql}`
       )
       .join('\n\n');
   }, [filteredModules]);
@@ -70,7 +70,7 @@ export const MasterScriptsView: React.FC<MasterScriptsViewProps> = ({
             <option value="todos">Todos os Módulos ({modules.length})</option>
             {modules.map((m, idx) => (
               <option key={m.id} value={m.id}>
-                {String(idx).padStart(2, '0')}. {m.shortTitle}
+                {String(idx + 1).padStart(2, '0')}. {m.shortTitle}
               </option>
             ))}
           </select>

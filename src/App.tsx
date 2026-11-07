@@ -54,7 +54,7 @@ import {
   subscribeToLiveSync,
 } from './services/liveSyncService';
 
-const MODULES_STORAGE_KEY = 'oracle18xe_training_modules_v2';
+const MODULES_STORAGE_KEY = 'oracle18xe_training_modules_v3';
 const IDEAS_STORAGE_KEY = 'oracle18xe_training_ideas_v2';
 const SCRATCHPAD_STORAGE_KEY = 'oracle_training_brainstorm_notes';
 const VIEW_MODE_STORAGE_KEY = 'oracle_training_view_mode_v2';
@@ -67,6 +67,19 @@ function formatClock(totalSeconds: number): string {
   const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
   const s = String(totalSeconds % 60).padStart(2, '0');
   return `${h}:${m}:${s}`;
+}
+
+function formatDurationBadge(seconds?: number): string {
+  if (!seconds || seconds <= 0) return '';
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) {
+    return s > 0 ? `${m}m ${String(s).padStart(2, '0')}s` : `${m}m`;
+  }
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return `${h}h ${remM}m`;
 }
 
 export default function App() {
@@ -111,12 +124,12 @@ export default function App() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-      // Migration from v1: preserve any user-created custom modules
-      const savedV1 = localStorage.getItem('oracle18xe_training_modules_v1');
-      if (savedV1) {
-        const parsedV1 = JSON.parse(savedV1);
-        if (Array.isArray(parsedV1)) {
-          const customOnes = parsedV1.filter((m: TrainingModule) => m.isCustom);
+      // Migration from previous versions: preserve any custom modules
+      const savedV2 = localStorage.getItem('oracle18xe_training_modules_v2') || localStorage.getItem('oracle18xe_training_modules_v1');
+      if (savedV2) {
+        const parsedV2 = JSON.parse(savedV2);
+        if (Array.isArray(parsedV2)) {
+          const customOnes = parsedV2.filter((m: TrainingModule) => m.isCustom);
           if (customOnes.length > 0) {
             return [...INITIAL_MODULES, ...customOnes];
           }
@@ -129,6 +142,9 @@ export default function App() {
   });
 
   const [activeModuleId, setActiveModuleId] = useState<string>(() => modules[0]?.id ?? 'mod-setup');
+  const [instructorActiveModuleId, setInstructorActiveModuleId] = useState<string>(
+    () => modules[0]?.id ?? 'mod-setup'
+  );
 
   // Persistent Brainstorm Backlog (v2)
   const [ideas, setIdeas] = useState<BrainstormIdea[]>(() => {
@@ -254,7 +270,8 @@ export default function App() {
         setModules((prev) => applySyncToModules(prev, sync));
 
         if (sync.activeModuleId) {
-          setActiveModuleId(sync.activeModuleId);
+          // Updates the instructor beacon ("Em Aula") without hijacking participant's current page view
+          setInstructorActiveModuleId(sync.activeModuleId);
         }
 
         if (sync.stopwatch && typeof sync.stopwatch.timerRunning === 'boolean') {
@@ -312,7 +329,10 @@ export default function App() {
         }
       }
       if (e.key === ACTIVE_MODULE_SYNC_KEY && e.newValue) {
-        setActiveModuleId(e.newValue);
+        setInstructorActiveModuleId(e.newValue);
+        if (!isStudentView) {
+          setActiveModuleId(e.newValue);
+        }
       }
       if (e.key === TIMER_SYNC_KEY && e.newValue) {
         try {
@@ -393,12 +413,131 @@ export default function App() {
 
   const handleToggleModuleCompleted = (id: string) => {
     setModules((prev) => {
-      const next = prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m));
+      const next = prev.map((m) => {
+        if (m.id === id) {
+          const willBeCompleted = !m.completed;
+          return {
+            ...m,
+            completed: willBeCompleted,
+            completedDurationSeconds: willBeCompleted
+              ? secondsElapsed > 0
+                ? secondsElapsed
+                : undefined
+              : undefined,
+          };
+        }
+        return m;
+      });
       if (!isStudentView) {
         publishLiveSync(buildSyncPayload(next, activeModuleId, secondsElapsed, timerRunning), 30);
       }
       return next;
     });
+  };
+
+  const handleResetTraining = () => {
+    if (
+      !window.confirm(
+        'Deseja realmente zerar o treinamento? Todos os módulos concluídos serão desmarcados, os tempos de cada etapa serão limpos e o cronômetro será zerado tanto para você quanto para os participantes.'
+      )
+    ) {
+      return;
+    }
+
+    const resetMods = modules.map((m) => ({
+      ...m,
+      completed: false,
+      completedDurationSeconds: undefined,
+    }));
+
+    setModules(resetMods);
+    setSecondsElapsed(0);
+    setTimerRunning(false);
+    const firstId = resetMods[0]?.id ?? 'mod-setup';
+    setActiveModuleId(firstId);
+    setInstructorActiveModuleId(firstId);
+
+    if (!isStudentView) {
+      publishLiveSync(buildSyncPayload(resetMods, firstId, 0, false), 10);
+    }
+    showToast('Treinamento reiniciado com sucesso! Todos os módulos e tempos foram zerados.');
+  };
+
+  const handleSaveKeyPointItem = (updatedItem: KeyPointItem) => {
+    if (!currentModule || !selectedKeyPoint) return;
+
+    const currentKeyPoints = [...currentModule.keyPoints];
+    const idx = currentKeyPoints.findIndex(
+      (kp) => kp.title === selectedKeyPoint.title || kp.detail === selectedKeyPoint.detail
+    );
+
+    if (idx >= 0) {
+      currentKeyPoints[idx] = updatedItem;
+    } else {
+      currentKeyPoints.push(updatedItem);
+    }
+
+    const nextModules = modules.map((m) =>
+      m.id === currentModule.id ? { ...m, keyPoints: currentKeyPoints } : m
+    );
+
+    setModules(nextModules);
+    setSelectedKeyPoint(updatedItem);
+
+    if (!isStudentView) {
+      publishLiveSync(
+        buildSyncPayload(nextModules, activeModuleId, secondsElapsed, timerRunning),
+        30
+      );
+    }
+    showToast('Bloco didático atualizado e sincronizado com os participantes!');
+  };
+
+  const handleSaveScript = (
+    type: 'ddl' | 'dml' | 'usageExample' | 'gabarito',
+    newCode: string
+  ) => {
+    if (!currentModule) return;
+
+    const nextModules = modules.map((m) => {
+      if (m.id === currentModule.id) {
+        if (type === 'ddl') {
+          return { ...m, ddlScript: newCode };
+        }
+        if (type === 'dml') {
+          return { ...m, dmlScript: newCode };
+        }
+        if (type === 'usageExample') {
+          return {
+            ...m,
+            usageExample: {
+              ...m.usageExample,
+              sql: newCode,
+            },
+          };
+        }
+        if (type === 'gabarito') {
+          return {
+            ...m,
+            exercise: {
+              ...m.exercise,
+              solutionSql: newCode,
+            },
+          };
+        }
+      }
+      return m;
+    });
+
+    setModules(nextModules);
+
+    if (!isStudentView) {
+      publishLiveSync(
+        buildSyncPayload(nextModules, activeModuleId, secondsElapsed, timerRunning),
+        30
+      );
+    }
+    showToast('Script SQL atualizado e sincronizado com os participantes!');
   };
 
   const handleMoveModule = (index: number, direction: 'up' | 'down') => {
@@ -453,14 +592,6 @@ export default function App() {
     setTimerRunning(false);
     if (!isStudentView) {
       publishLiveSync(buildSyncPayload(modules, activeModuleId, secondsElapsed, false), 30);
-    }
-  };
-
-  const handleResetTimer = () => {
-    setTimerRunning(false);
-    setSecondsElapsed(0);
-    if (!isStudentView) {
-      publishLiveSync(buildSyncPayload(modules, activeModuleId, 0, false), 30);
     }
   };
 
@@ -832,11 +963,11 @@ export default function App() {
                 )}
                 <button
                   type="button"
-                  onClick={handleResetTimer}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded transition-colors whitespace-nowrap shrink-0"
-                  title="Zerar cronômetro da aula"
+                  onClick={handleResetTraining}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded transition-colors whitespace-nowrap shrink-0 border border-slate-700"
+                  title="Zerar cronômetro da aula, percentual de progresso e status de todas as etapas"
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  <RotateCcw className="w-3 h-3 text-rose-400" />
                   <span>Zerar</span>
                 </button>
               </div>
@@ -868,6 +999,10 @@ export default function App() {
               <div className="divide-y divide-slate-800/70">
                 {modules.map((mod, idx) => {
                   const isSelected = mod.id === currentModule.id;
+                  const isEmAula = isStudentView
+                    ? mod.id === instructorActiveModuleId
+                    : isSelected;
+
                   return (
                     <div
                       key={mod.id}
@@ -891,7 +1026,7 @@ export default function App() {
                               : 'text-slate-500'
                           }`}
                         >
-                          {mod.completed ? '✓' : `${String(idx).padStart(2, '0')}.`}
+                          {mod.completed ? '✓' : `${String(idx + 1).padStart(2, '0')}.`}
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
@@ -899,16 +1034,16 @@ export default function App() {
                               {mod.shortTitle}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                             <span className="text-[11px] text-slate-400 tabular-nums">
                               {mod.durationMinutes} min · {mod.category}
                             </span>
                             {/* Live Status Tag */}
                             {mod.completed ? (
                               <span className="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 whitespace-nowrap">
-                                Concluído
+                                Concluído{mod.completedDurationSeconds ? ` · ${formatDurationBadge(mod.completedDurationSeconds)}` : ''}
                               </span>
-                            ) : isSelected ? (
+                            ) : isEmAula ? (
                               <span className="text-[10px] font-semibold text-rose-300 bg-rose-500/15 px-1.5 py-0.2 rounded border border-rose-500/30 whitespace-nowrap inline-flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
                                 Em Aula
@@ -965,7 +1100,7 @@ export default function App() {
               ) : (
                 <div className="p-3 border-t border-slate-800 bg-[#0B0F19]/50 text-center">
                   <span className="text-[11px] text-slate-500">
-                    Navegue pelas etapas do roteiro clicando nos módulos acima
+                    Navegue livremente pelas etapas clicando na lista acima
                   </span>
                 </div>
               )}
@@ -979,7 +1114,7 @@ export default function App() {
                   {/* Unboxed clean metadata with middle dot separators */}
                   <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
                     <span className="font-mono text-rose-400 font-semibold tabular-nums">
-                      Etapa {String(activeModuleIndex).padStart(2, '0')}
+                      Etapa {String(activeModuleIndex + 1).padStart(2, '0')}
                     </span>
                     <span aria-hidden="true">·</span>
                     <span className="tabular-nums">
@@ -991,17 +1126,32 @@ export default function App() {
 
                   {/* Actions Header: Distinct Student Mode vs Instructor Mode */}
                   {isStudentView ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {currentModule.completed ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
                           <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Módulo Concluído no Treinamento</span>
+                          <span>Módulo Concluído no Treinamento{currentModule.completedDurationSeconds ? ` · ${formatDurationBadge(currentModule.completedDurationSeconds)}` : ''}</span>
                         </span>
-                      ) : (
+                      ) : currentModule.id === instructorActiveModuleId ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/15 border border-rose-500/30 text-rose-300">
                           <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
                           <span>Módulo Atual em Aula</span>
                         </span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs text-slate-400 bg-slate-800/70 border border-slate-700">
+                            Navegação Livre
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectModule(instructorActiveModuleId)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded transition-colors"
+                            title="Ir para o módulo que o instrutor está apresentando agora"
+                          >
+                            <span>Ir para etapa do instrutor</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   ) : (
@@ -1043,7 +1193,9 @@ export default function App() {
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>
-                          {currentModule.completed ? 'Módulo Apresentado' : 'Marcar Apresentado'}
+                          {currentModule.completed
+                            ? `Módulo Apresentado${currentModule.completedDurationSeconds ? ` · ${formatDurationBadge(currentModule.completedDurationSeconds)}` : ''}`
+                            : 'Marcar Apresentado'}
                         </span>
                       </button>
 
@@ -1063,7 +1215,7 @@ export default function App() {
                 </div>
 
                 <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                  {String(activeModuleIndex).padStart(2, '0')}. {currentModule.title}
+                  {String(activeModuleIndex + 1).padStart(2, '0')}. {currentModule.title}
                 </h1>
               </div>
 
@@ -1230,6 +1382,8 @@ export default function App() {
                         subtitle="Executa COMMIT implícito antes e depois"
                         code={currentModule.ddlScript}
                         filename={`${currentModule.id}_ddl.sql`}
+                        editable={!isStudentView}
+                        onSaveCode={(newCode) => handleSaveScript('ddl', newCode)}
                         onCopySuccess={showToast}
                       />
                     )}
@@ -1240,6 +1394,8 @@ export default function App() {
                         subtitle="Carga inicial e massa de validação"
                         code={currentModule.dmlScript}
                         filename={`${currentModule.id}_dml.sql`}
+                        editable={!isStudentView}
+                        onSaveCode={(newCode) => handleSaveScript('dml', newCode)}
                         onCopySuccess={showToast}
                       />
                     )}
@@ -1263,6 +1419,8 @@ export default function App() {
                   subtitle="Demonstração comentada pelo instrutor"
                   code={currentModule.usageExample.sql}
                   filename={`${currentModule.id}_exemplo.sql`}
+                  editable={!isStudentView}
+                  onSaveCode={(newCode) => handleSaveScript('usageExample', newCode)}
                   onCopySuccess={showToast}
                 />
               </section>
@@ -1315,6 +1473,8 @@ export default function App() {
                         title={`Gabarito Oficial · ${currentModule.exercise.title}`}
                         code={currentModule.exercise.solutionSql}
                         filename={`${currentModule.id}_gabarito.sql`}
+                        editable={!isStudentView}
+                        onSaveCode={(newCode) => handleSaveScript('gabarito', newCode)}
                         onCopySuccess={showToast}
                       />
                       {currentModule.exercise.notes && (
@@ -1530,8 +1690,10 @@ export default function App() {
         isOpen={Boolean(selectedKeyPoint)}
         item={selectedKeyPoint}
         moduleTitle={currentModule?.title}
+        isInstructor={!isStudentView}
         onClose={() => setSelectedKeyPoint(null)}
         onCopySuccess={showToast}
+        onSaveItem={handleSaveKeyPointItem}
       />
 
       {/* Copy / Action Toast */}
