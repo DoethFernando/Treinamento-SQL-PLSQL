@@ -96,6 +96,7 @@ export default function App() {
   });
 
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
 
   // Mode: Default is ALWAYS true (Visão do Participante).
   // Only enters Modo Instrutor if authenticated in session AND explicitly chosen.
@@ -184,6 +185,17 @@ export default function App() {
     new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
   );
 
+  // Content and script modifications made by instructor
+  const [modifiedModules, setModifiedModules] = useState<Record<string, Partial<TrainingModule>>>(() => {
+    try {
+      const saved = localStorage.getItem('oracle_training_modified_modules_v2');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return {};
+  });
+
   // Solution Accordion State per Module
   const [revealedSolutions, setRevealedSolutions] = useState<Record<string, boolean>>({});
 
@@ -239,6 +251,14 @@ export default function App() {
       // ignore
     }
   }, [scratchpad]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('oracle_training_modified_modules_v2', JSON.stringify(modifiedModules));
+    } catch {
+      // ignore
+    }
+  }, [modifiedModules]);
 
   useEffect(() => {
     try {
@@ -307,13 +327,19 @@ export default function App() {
     }
   }, [secondsElapsed, timerRunning]);
 
-  // Broadcast any instructor updates (modules, order, status, timer) to participants worldwide
+  // Broadcast any instructor updates (modules, order, status, timer, modified content) to participants worldwide
   useEffect(() => {
     if (!isStudentView && !isApplyingRemoteSyncRef.current) {
-      const payload = buildSyncPayload(modules, activeModuleId, secondsElapsed, timerRunning);
-      publishLiveSync(payload, 300);
+      const payload = buildSyncPayload(
+        modules,
+        activeModuleId,
+        secondsElapsed,
+        timerRunning,
+        modifiedModules
+      );
+      publishLiveSync(payload, 200);
     }
-  }, [isStudentView, modules, activeModuleId, timerRunning]);
+  }, [isStudentView, modules, activeModuleId, timerRunning, modifiedModules]);
 
   // Listen to cross-tab updates (e.g. Instructor changes module or status in another tab/window)
   useEffect(() => {
@@ -407,43 +433,37 @@ export default function App() {
   const handleSelectModule = (id: string) => {
     setActiveModuleId(id);
     if (!isStudentView) {
-      publishLiveSync(buildSyncPayload(modules, id, secondsElapsed, timerRunning), 50);
+      publishLiveSync(buildSyncPayload(modules, id, secondsElapsed, timerRunning, modifiedModules), 50);
     }
   };
 
   const handleToggleModuleCompleted = (id: string) => {
-    setModules((prev) => {
-      const next = prev.map((m) => {
-        if (m.id === id) {
-          const willBeCompleted = !m.completed;
-          return {
-            ...m,
-            completed: willBeCompleted,
-            completedDurationSeconds: willBeCompleted
-              ? secondsElapsed > 0
-                ? secondsElapsed
-                : undefined
-              : undefined,
-          };
-        }
-        return m;
-      });
-      if (!isStudentView) {
-        publishLiveSync(buildSyncPayload(next, activeModuleId, secondsElapsed, timerRunning), 30);
+    const next = modules.map((m) => {
+      if (m.id === id) {
+        const willBeCompleted = !m.completed;
+        return {
+          ...m,
+          completed: willBeCompleted,
+          completedDurationSeconds: willBeCompleted
+            ? secondsElapsed > 0
+              ? secondsElapsed
+              : undefined
+            : undefined,
+        };
       }
-      return next;
+      return m;
     });
+
+    setModules(next);
+    if (!isStudentView) {
+      publishLiveSync(
+        buildSyncPayload(next, activeModuleId, secondsElapsed, timerRunning, modifiedModules),
+        0
+      );
+    }
   };
 
-  const handleResetTraining = () => {
-    if (
-      !window.confirm(
-        'Deseja realmente zerar o treinamento? Todos os módulos concluídos serão desmarcados, os tempos de cada etapa serão limpos e o cronômetro será zerado tanto para você quanto para os participantes.'
-      )
-    ) {
-      return;
-    }
-
+  const executeResetTraining = () => {
     const resetMods = modules.map((m) => ({
       ...m,
       completed: false,
@@ -458,8 +478,9 @@ export default function App() {
     setInstructorActiveModuleId(firstId);
 
     if (!isStudentView) {
-      publishLiveSync(buildSyncPayload(resetMods, firstId, 0, false), 10);
+      publishLiveSync(buildSyncPayload(resetMods, firstId, 0, false, modifiedModules), 0);
     }
+    setResetModalOpen(false);
     showToast('Treinamento reiniciado com sucesso! Todos os módulos e tempos foram zerados.');
   };
 
@@ -484,10 +505,19 @@ export default function App() {
     setModules(nextModules);
     setSelectedKeyPoint(updatedItem);
 
+    const nextModified = {
+      ...modifiedModules,
+      [currentModule.id]: {
+        ...modifiedModules[currentModule.id],
+        keyPoints: currentKeyPoints,
+      },
+    };
+    setModifiedModules(nextModified);
+
     if (!isStudentView) {
       publishLiveSync(
-        buildSyncPayload(nextModules, activeModuleId, secondsElapsed, timerRunning),
-        30
+        buildSyncPayload(nextModules, activeModuleId, secondsElapsed, timerRunning, nextModified),
+        0
       );
     }
     showToast('Bloco didático atualizado e sincronizado com os participantes!');
@@ -531,10 +561,28 @@ export default function App() {
 
     setModules(nextModules);
 
+    const updatedPatch: Partial<TrainingModule> =
+      type === 'ddl'
+        ? { ddlScript: newCode }
+        : type === 'dml'
+        ? { dmlScript: newCode }
+        : type === 'usageExample'
+        ? { usageExample: { ...currentModule.usageExample, sql: newCode } }
+        : { exercise: { ...currentModule.exercise, solutionSql: newCode } };
+
+    const nextModified = {
+      ...modifiedModules,
+      [currentModule.id]: {
+        ...modifiedModules[currentModule.id],
+        ...updatedPatch,
+      },
+    };
+    setModifiedModules(nextModified);
+
     if (!isStudentView) {
       publishLiveSync(
-        buildSyncPayload(nextModules, activeModuleId, secondsElapsed, timerRunning),
-        30
+        buildSyncPayload(nextModules, activeModuleId, secondsElapsed, timerRunning, nextModified),
+        0
       );
     }
     showToast('Script SQL atualizado e sincronizado com os participantes!');
@@ -543,15 +591,16 @@ export default function App() {
   const handleMoveModule = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= modules.length) return;
-    setModules((prev) => {
-      const copy = [...prev];
-      const [moved] = copy.splice(index, 1);
-      copy.splice(targetIndex, 0, moved);
-      if (!isStudentView) {
-        publishLiveSync(buildSyncPayload(copy, activeModuleId, secondsElapsed, timerRunning), 30);
-      }
-      return copy;
-    });
+    const copy = [...modules];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(targetIndex, 0, moved);
+    setModules(copy);
+    if (!isStudentView) {
+      publishLiveSync(
+        buildSyncPayload(copy, activeModuleId, secondsElapsed, timerRunning, modifiedModules),
+        0
+      );
+    }
   };
 
   // Drag and drop state for KeyPoint blocks
@@ -565,13 +614,24 @@ export default function App() {
     const [moved] = keyPoints.splice(fromIndex, 1);
     keyPoints.splice(toIndex, 0, moved);
 
-    setModules((prev) => {
-      const next = prev.map((m) => (m.id === currentModule.id ? { ...m, keyPoints } : m));
-      if (!isStudentView) {
-        publishLiveSync(buildSyncPayload(next, activeModuleId, secondsElapsed, timerRunning), 30);
-      }
-      return next;
-    });
+    const next = modules.map((m) => (m.id === currentModule.id ? { ...m, keyPoints } : m));
+    setModules(next);
+
+    const nextModified = {
+      ...modifiedModules,
+      [currentModule.id]: {
+        ...modifiedModules[currentModule.id],
+        keyPoints,
+      },
+    };
+    setModifiedModules(nextModified);
+
+    if (!isStudentView) {
+      publishLiveSync(
+        buildSyncPayload(next, activeModuleId, secondsElapsed, timerRunning, nextModified),
+        0
+      );
+    }
     showToast('Nova ordem dos blocos salva e sincronizada com os participantes!');
   };
 
@@ -584,14 +644,20 @@ export default function App() {
   const handleStartTimer = () => {
     setTimerRunning(true);
     if (!isStudentView) {
-      publishLiveSync(buildSyncPayload(modules, activeModuleId, secondsElapsed, true), 30);
+      publishLiveSync(
+        buildSyncPayload(modules, activeModuleId, secondsElapsed, true, modifiedModules),
+        0
+      );
     }
   };
 
   const handlePauseTimer = () => {
     setTimerRunning(false);
     if (!isStudentView) {
-      publishLiveSync(buildSyncPayload(modules, activeModuleId, secondsElapsed, false), 30);
+      publishLiveSync(
+        buildSyncPayload(modules, activeModuleId, secondsElapsed, false, modifiedModules),
+        0
+      );
     }
   };
 
@@ -609,7 +675,10 @@ export default function App() {
     setIsStudentView(false);
     showToast('Modo Instrutor desbloqueado com sucesso!');
     // Trigger immediate state broadcast so participants get any pending changes
-    publishLiveSync(buildSyncPayload(modules, activeModuleId, secondsElapsed, timerRunning), 50);
+    publishLiveSync(
+      buildSyncPayload(modules, activeModuleId, secondsElapsed, timerRunning, modifiedModules),
+      0
+    );
   };
 
   const handleDeleteCustomModule = (id: string) => {
@@ -619,6 +688,12 @@ export default function App() {
       if (activeModuleId === id && next[0]) {
         setActiveModuleId(next[0].id);
       }
+      if (!isStudentView) {
+        publishLiveSync(
+          buildSyncPayload(next, activeModuleId === id && next[0] ? next[0].id : activeModuleId, secondsElapsed, timerRunning, modifiedModules),
+          0
+        );
+      }
       return next;
     });
     showToast('Tópico removido do roteiro.');
@@ -626,7 +701,16 @@ export default function App() {
 
   const handleSaveModule = (saved: TrainingModule, isNew: boolean) => {
     if (isNew) {
-      setModules((prev) => [...prev, saved]);
+      setModules((prev) => {
+        const next = [...prev, saved];
+        if (!isStudentView) {
+          publishLiveSync(
+            buildSyncPayload(next, saved.id, secondsElapsed, timerRunning, modifiedModules),
+            0
+          );
+        }
+        return next;
+      });
       setActiveModuleId(saved.id);
       setActiveNav('roteiro');
       if (convertingIdeaId) {
@@ -639,7 +723,32 @@ export default function App() {
       }
       showToast(`Novo tópico "${saved.shortTitle}" adicionado ao roteiro.`);
     } else {
-      setModules((prev) => prev.map((m) => (m.id === saved.id ? saved : m)));
+      const nextModules = modules.map((m) => (m.id === saved.id ? saved : m));
+      setModules(nextModules);
+      const nextModified = {
+        ...modifiedModules,
+        [saved.id]: {
+          ...modifiedModules[saved.id],
+          title: saved.title,
+          shortTitle: saved.shortTitle,
+          conceptSummary: saved.conceptSummary,
+          durationMinutes: saved.durationMinutes,
+          category: saved.category,
+          keyPoints: saved.keyPoints,
+          ddlScript: saved.ddlScript,
+          dmlScript: saved.dmlScript,
+          usageExample: saved.usageExample,
+          exercise: saved.exercise,
+          instructorTips: saved.instructorTips,
+        },
+      };
+      setModifiedModules(nextModified);
+      if (!isStudentView) {
+        publishLiveSync(
+          buildSyncPayload(nextModules, activeModuleId, secondsElapsed, timerRunning, nextModified),
+          0
+        );
+      }
       showToast(`Módulo "${saved.shortTitle}" atualizado.`);
     }
   };
@@ -963,7 +1072,7 @@ export default function App() {
                 )}
                 <button
                   type="button"
-                  onClick={handleResetTraining}
+                  onClick={() => setResetModalOpen(true)}
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded transition-colors whitespace-nowrap shrink-0 border border-slate-700"
                   title="Zerar cronômetro da aula, percentual de progresso e status de todas as etapas"
                 >
@@ -1665,6 +1774,49 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Modal de Confirmação: Zerar Treinamento */}
+      {resetModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+        >
+          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-rose-400 mb-3">
+              <div className="w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
+                <RotateCcw className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-100">Zerar Treinamento?</h3>
+                <p className="text-xs text-slate-400">Esta ação afeta a sala inteira</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-300 leading-relaxed mb-6">
+              Todos os módulos concluídos serão desmarcados, os tempos de cada etapa serão limpos, a barra de progresso voltará para 0% e o cronômetro será zerado para você e todos os participantes.
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setResetModalOpen(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={executeResetTraining}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-lg transition-colors shadow-lg shadow-rose-950/50"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Sim, Zerar Treinamento</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Instructor Password Protection Modal */}
       <InstructorAuthModal
