@@ -1,66 +1,62 @@
 import { BrainstormIdea, BridgeSuggestion, TrainingModule } from '../types/training';
 
 export const INITIAL_MODULES: TrainingModule[] = [
-  {
-    id: 'mod-setup',
-    title: 'Setup do Ambiente Oracle 18c XE, Users, Grants e TNSNAMES.ora',
-    shortTitle: 'Setup, Users & Grants',
-    durationMinutes: 15,
-    category: 'Administração Inicial',
-    completed: false,
-    conceptSummary:
-      'Nesta etapa abordaremos as estruturas que temos em nossos clientes ja previamente instalado e rodando varios cenarios de bancos de dados instalados, todos Oracle, porem com versões e infra estruturas diversificadas, bancos rodando na nuvem na OCI servidos pela propria HISOWER (VIG/Triunfo/Petrovina...), bancos rodando na OCI proprietario de Clientes (Dois Marcos), bancos rodando na AWS proprietario de Clientes (SSF,Trader), bancos rodando servidor local da Hisower (AGRICAMP, BIOSERVICOS, Nova Esperança...), bancos rodando servidor local no cliente (Sao Jeronimo, Torre, IMA, Condeagro...). Por aqui tambem veremos como acessamos esses clientes, Oracle Client Admin / instantclient, configuracao de TNSNAMES. Comandos de criação de USERS e Atribuição de privilégios como Grants e Quotas.',
+    {
     keyPoints: [
       {
         title: 'Configuração e Para Que Serve o TNSNAMES.ORA',
         pathOrSyntax: '%ORACLE_HOME%\\network\\admin\\tnsnames.ora (ou via TNS_ADMIN = instantclient)',
-        detail:
-          'Arquivo de resolução de nomes que mapeia o alias amigável TREINAMENTO para Host, porta 1521 e SERVICE_NAME (XEPDB1). Essencial para conexão de clientes e validado via tnsping.',
+        detail: 'O TNSNAMES.ORA é o arquivo de configuração de rede do Oracle Net Services. Ele funciona exatamente como um DNS local para bancos de dados Oracle: mapeia um apelido amigável (alias como TREINAMENTO) para o endereço IP do servidor, porta TCP (padrão 1521) e o nome do serviço registrado no Listener (SERVICE_NAME). Permite conectar o PL/SQL Developer, Instant Client e ferramentas corporativas em ambientes locais, OCI e AWS.',
         deepDive: {
-          purpose:
-            'O TNSNAMES.ORA é o arquivo de configuração de rede do Oracle Net Services. Ele funciona exatamente como um DNS local para bancos de dados Oracle: mapeia um apelido amigável (alias como TREINAMENTO) para o endereço IP do servidor, porta TCP (padrão 1521) e o nome do serviço registrado no Listener (SERVICE_NAME). Permite conectar o PL/SQL Developer, Instant Client e ferramentas corporativas em ambientes locais, OCI e AWS.',
+          purpose: 'O TNSNAMES.ORA é o arquivo de configuração de rede do Oracle Net Services. Ele funciona exatamente como um DNS local para bancos de dados Oracle: mapeia um apelido amigável (alias como TREINAMENTO) para o endereço IP do servidor, porta TCP (padrão 1521) e o nome do serviço registrado no Listener (SERVICE_NAME). Permite conectar o PL/SQL Developer, Instant Client e ferramentas corporativas em ambientes locais, OCI e AWS.',
           breakdownTitle: 'Estrutura do TNSNAMES e Alias TREINAMENTO',
           breakdownItems: [
             {
               label: 'Definição do Alias TREINAMENTO',
               code: 'TREINAMENTO = (DESCRIPTION = ...)',
-              description:
-                'Apelido amigável configurado no tnsnames.ora. É esse alias que você informará no campo Database do PL/SQL Developer.',
+              description: 'Apelido amigável configurado no tnsnames.ora. É esse alias que você informará no campo Database do PL/SQL Developer.'
             },
             {
               label: 'HOST e PORT',
               code: '(ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))',
-              description:
-                'HOST aponta para o servidor onde o Oracle está em execução (localhost no laboratório ou IP/DNS privado na nuvem OCI/AWS). PORT é 1521.',
+              description: 'HOST aponta para o servidor onde o Oracle está em execução (localhost no laboratório ou IP/DNS privado na nuvem OCI/AWS). PORT é 1521.'
             },
             {
               label: 'SERVICE_NAME vs SID',
               code: '(CONNECT_DATA = (SERVER = DEDICATED)(SERVICE_NAME = XEPDB1))',
-              description:
-                'No Oracle 18c XE multitenant, aponte sempre para o Pluggable Database (SERVICE_NAME = XEPDB1). Não utilize SID = XE para aplicações de negócio.',
+              description: 'No Oracle 18c XE multitenant, aponte sempre para o Pluggable Database (SERVICE_NAME = XEPDB1). Não utilize SID = XE para aplicações de negócio.'
             },
             {
               label: 'Localização do Arquivo & TNS_ADMIN',
               code: 'TNS_ADMIN = C:\\Oracle\\instantclient\\network\\admin',
-              description:
-                'Se usar Oracle Client Admin: %ORACLE_HOME%\\network\\admin\\tnsnames.ora. Se usar Instant Client portátil: crie a variável de ambiente de sistema TNS_ADMIN apontando para o diretório onde o tnsnames.ora foi salvo.',
+              description: 'Se usar Oracle Client Admin: %ORACLE_HOME%\\network\\admin\\tnsnames.ora. Se usar Instant Client portátil: crie a variável de ambiente de sistema TNS_ADMIN apontando para o diretório onde o tnsnames.ora foi salvo.'
             },
             {
               label: 'Validação com TNSPING',
               code: 'tnsping TREINAMENTO',
-              description:
-                'Utilitário de linha de comando para testar se o Listener está ativo e se o alias foi resolvido antes mesmo de abrir o PL/SQL Developer.',
-            },
+              description: 'Utilitário de linha de comando para testar se o Listener está ativo e se o alias foi resolvido antes mesmo de abrir o PL/SQL Developer.'
+            }
           ],
           codeExample: `# Entrada configurada no tnsnames.ora para o laboratório:
 TREINAMENTO =
   (DESCRIPTION =
-    (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
+    (ADDRESS = (PROTOCOL = TCP)(HOST = oscarindia.softsul.agr.br)(PORT = 6521))
     (CONNECT_DATA =
       (SERVER = DEDICATED)
-      (SERVICE_NAME = XEPDB1)
+      (SERVICE_NAME = LABV2BASETESTE)
     )
   )
+
+
+LABV2BASETESTE =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = TCP)(HOST = oscarindia.softsul.agr.br)(PORT = 6521))
+    (CONNECT_DATA =
+      (SERVER = DEDICATED)
+      (SERVICE_NAME = LABV2BASETESTE)
+    )
+  )
+
 
 # Teste de resolução de conectividade no CMD / Prompt de Comando:
 tnsping TREINAMENTO
@@ -71,80 +67,69 @@ tnsping TREINAMENTO
           productionGotchas: [
             'Erro TNS-03505: Failed to resolve name indica que o alias TREINAMENTO não foi encontrado ou a variável TNS_ADMIN está apontando para o caminho errado.',
             'Erro TNS-12541: TNS:no listener indica que o serviço de rede do Oracle está parado no servidor ou a porta 1521 está bloqueada por firewall/security list (OCI/AWS).',
-            'No PL/SQL Developer, confira em Configure > Preferences > Oracle > Connection se o Oracle Home e a OCI Library estão selecionados corretamente.',
-          ],
-        },
+            'No PL/SQL Developer, confira em Configure > Preferences > Oracle > Connection se o Oracle Home e a OCI Library estão selecionados corretamente.'
+          ]
+        }
       },
       {
         title: 'Conexão no Alias TREINAMENTO (Oracle 18c XE)',
         pathOrSyntax: 'informar em LogonDatabase o ALIAS TREINAMENTO criado no tnsnames.',
-        detail:
-          'Conexão ao PDB da aplicação via alias TREINAMENTO para criação de usuários (SOFTSUL, FINANC), cotas, concessão de privilégios (CONNECT, RESOURCE, DBA, UNLIMITED TABLESPACE, CREATE ANY VIEW, DEBUG CONNECT SESSION), gestão de ROLES e comando REVOKE.',
+        detail: 'A partir da versão do Oracle 12c, o Oracle passou a ser Multitenent.',
         deepDive: {
-          purpose:
-            'Compreender a conexão no Pluggable Database (PDB) e a gestão completa de Usuários e Segurança no Oracle. No Oracle 18c XE, o banco possui a raiz CDB$ROOT (apenas para administração da instância global) e o PDB XEPDB1 (onde residem os schemas e tabelas da empresa). Criar usuários na raiz exige prefixo C## e dispara erro ORA-65096; por isso, todas as conexões de negócio devem ser feitas no PDB via alias TREINAMENTO.',
+          purpose: `A partir da versão do Oracle 12c, o Oracle passou a ser Multitenent.
+Compreender a conexão no Pluggable Database (PDB) e a gestão completa de Usuários e Segurança no Oracle. No Oracle 18c XE, o banco possui a raiz CDB$ROOT (apenas para administração da instância global) e o PDB XEPDB1 (onde residem os schemas e tabelas da empresa). Criar usuários na raiz exige prefixo C## e dispara erro ORA-65096; por isso, todas as conexões de negócio devem ser feitas no PDB via alias TREINAMENTO.`,
           breakdownTitle: 'Detalhamento de Conexão, GRANTs, ROLES e REVOKE',
           breakdownItems: [
             {
               label: 'Conexão no PL/SQL Developer',
               code: 'LogonDatabase: TREINAMENTO',
-              description:
-                'Na tela de logon do PL/SQL Developer, informar em LogonDatabase o ALIAS TREINAMENTO criado no tnsnames. Usuário de administração inicial: SYSTEM.',
+              description: 'Na tela de logon do PL/SQL Developer, informar em LogonDatabase o ALIAS TREINAMENTO criado no tnsnames. Usuário de administração inicial: SYSTEM.'
             },
             {
               label: 'CDB$ROOT vs Pluggable Database (PDB)',
               code: 'ORA-65096: invalid common user or role name',
-              description:
-                'Se conectar no CDB$ROOT (SID: XE) e tentar criar usuários comuns, o Oracle rejeita com ORA-65096 exigindo prefixo C##. Nunca crie tabelas da sua aplicação dentro do CDB$ROOT.',
+              description: 'Se conectar no CDB$ROOT (SID: XE) e tentar criar usuários comuns, o Oracle rejeita com ORA-65096 exigindo prefixo C##. Nunca crie tabelas da sua aplicação dentro do CDB$ROOT.'
             },
             {
               label: 'GRANT CONNECT',
               code: 'GRANT CONNECT TO <user>;',
-              description:
-                'Permite autenticar no banco de dados. No Oracle moderno, contém unicamente o privilégio de sistema CREATE SESSION. Sem ele, o login é recusado.',
+              description: 'Permite autenticar no banco de dados. No Oracle moderno, contém unicamente o privilégio de sistema CREATE SESSION. Sem ele, o login é recusado.'
             },
             {
               label: 'GRANT RESOURCE',
               code: 'GRANT RESOURCE TO <user>;',
-              description:
-                'Papel padrão de desenvolvimento para criação de objetos no próprio schema: CREATE TABLE, CREATE SEQUENCE, CREATE PROCEDURE, CREATE TRIGGER, CREATE TYPE, CREATE CLUSTER. (Atenção: Não inclui CREATE VIEW nem cota de disco).',
+              description: 'Papel padrão de desenvolvimento para criação de objetos no próprio schema: CREATE TABLE, CREATE SEQUENCE, CREATE PROCEDURE, CREATE TRIGGER, CREATE TYPE, CREATE CLUSTER. (Atenção: Não inclui CREATE VIEW nem cota de disco).'
             },
             {
               label: 'GRANT DBA',
               code: 'GRANT DBA TO <user>;',
-              description:
-                'Papel administrativo de altíssimo poder. Concede quase todos os privilégios do banco (visão do dicionário, alteração de parâmetros e controle sobre schemas alheios). Em produção, viole apenas com aprovação formal.',
+              description: 'Papel administrativo de altíssimo poder. Concede quase todos os privilégios do banco (visão do dicionário, alteração de parâmetros e controle sobre schemas alheios). Em produção, viole apenas com aprovação formal.'
             },
             {
               label: 'GRANT UNLIMITED TABLESPACE',
               code: 'GRANT UNLIMITED TABLESPACE TO <user>;',
-              description:
-                'Privilégio de sistema que concede poder ilimitado de escrita em qualquer tablespace do banco (USERS, SYSTEM, SYSAUX). Em produção, o recomendado é usar cota controlada (QUOTA <tamanho> ON <tablespace>).',
+              description: 'Privilégio de sistema que concede poder ilimitado de escrita em qualquer tablespace do banco (USERS, SYSTEM, SYSAUX). Em produção, o recomendado é usar cota controlada (QUOTA <tamanho> ON <tablespace>).'
             },
             {
               label: 'GRANT CREATE ANY VIEW',
               code: 'GRANT CREATE ANY VIEW TO <user>;',
-              description:
-                'Privilégio que autoriza criar views em QUALQUER schema do banco, não apenas no próprio. Quebra a segregação entre usuários e deve ser evitado em produção.',
+              description: 'Privilégio que autoriza criar views em QUALQUER schema do banco, não apenas no próprio. Quebra a segregação entre usuários e deve ser evitado em produção.'
             },
             {
               label: 'GRANT DEBUG CONNECT SESSION',
               code: 'GRANT DEBUG CONNECT SESSION TO <user>;',
-              description:
-                'Necessário para que o PL/SQL Developer faça depuração passo a passo (F9 / Debug) de procedures e packages via conexão de socket/JDWP.',
+              description: 'Necessário para que o PL/SQL Developer faça depuração passo a passo (F9 / Debug) de procedures e packages via conexão de socket/JDWP.'
             },
             {
               label: 'Conceito e Criação de ROLE',
               code: 'CREATE ROLE r_desenvolvedor;',
-              description:
-                'Uma ROLE é um grupo nomeado de privilégios. Em vez de atribuir dezenas de GRANTs a cada usuário individualmente, cria-se a ROLE, concedem-se os privilégios a ela e depois a ROLE é atribuída aos usuários.',
+              description: 'Uma ROLE é um grupo nomeado de privilégios. Em vez de atribuir dezenas de GRANTs a cada usuário individualmente, cria-se a ROLE, concedem-se os privilégios a ela e depois a ROLE é atribuída aos usuários.'
             },
             {
               label: 'Comando REVOKE',
               code: 'REVOKE <privilégio_ou_role> FROM <user>;',
-              description:
-                'Comando DCL utilizado para remover privilégios ou roles concedidos anteriormente. Pode revogar privilégios de sistema, privilégios de objeto ou roles.',
-            },
+              description: 'Comando DCL utilizado para remover privilégios ou roles concedidos anteriormente. Pode revogar privilégios de sistema, privilégios de objeto ou roles.'
+            }
           ],
           codeExample: `-- ====================================================================
 -- SCRIPT REAL DE CRIAÇÃO DE USUÁRIOS E PRIVILÉGIOS (Executar como SYSTEM)
@@ -202,42 +187,24 @@ REVOKE r_dev_aplicacao FROM FINANC;`,
             'Princípio do Menor Privilégio: Nunca conceda GRANT DBA para usuários de aplicação em ambiente de produção.',
             'Riscos do CREATE ANY VIEW: Permite que um usuário crie views com compilação forçada em schemas de sistema ou capture dados de outros módulos sem autorização.',
             'UNLIMITED TABLESPACE versus QUOTA: O grant UNLIMITED TABLESPACE permite gastar espaço até nas tablespaces SYSTEM e SYSAUX. Em ambientes compartilhados, use sempre QUOTA específica na tablespace da aplicação.',
-            'Nunca crie tabelas da sua aplicação dentro do CDB$ROOT.',
-          ],
-        },
+            'Nunca crie tabelas da sua aplicação dentro do CDB$ROOT.'
+          ]
+        }
       },
+      {
+        title: 'Ponto-Chave',
+        detail: 'Compreender a conexão no Pluggable Database (PDB) e a gestão completa de Usuários e Segurança no Oracle. No Oracle 18c XE, o banco possui a raiz CDB$ROOT (apenas para administração da instância global) e o PDB XEPDB1 (onde residem os schemas e tabelas da empresa). Criar usuários na raiz exige prefixo C## e dispara erro ORA-65096; por isso, todas as conexões de negócio devem ser feitas no PDB via alias TREINAMENTO.'
+      }
     ],
-    usageExample: {
-      title: 'Criação de Usuário de Leitura, Concessão Granular e Validação de TNS',
-      explanation:
-        'Demonstra como criar um segundo usuário de consulta (ex: analista de BI) com cota e privilégios mínimos no XEPDB1.',
-      sql: `-- Executado como SYSTEM conectado em XEPDB1:
-CREATE USER usr_consulta IDENTIFIED BY Consulta123#
-  DEFAULT TABLESPACE users
-  TEMPORARY TABLESPACE temp
-  QUOTA 50M ON users;
-
-GRANT CREATE SESSION TO usr_consulta;
-
--- Executado como USR_TREINAMENTO (dono da tabela):
-GRANT SELECT ON usr_treinamento.clientes TO usr_consulta;
-
--- Teste de login com o alias configurado no tnsnames.ora:
--- sqlplus usr_consulta/Consulta123#@XEPDB1
-SELECT * FROM usr_treinamento.clientes;`,
-    },
     ddlScript: `-- ==========================================================
--- SCRIPT DDL INICIAL (Executar como SYSTEM em XEPDB1)
+-- SCRIPT DDL INICIAL (Executar como SYSTEM em TREINAMENTO)
 -- ==========================================================
-CREATE USER usr_treinamento IDENTIFIED BY Treina123#
-  DEFAULT TABLESPACE users
-  TEMPORARY TABLESPACE temp
-  QUOTA UNLIMITED ON users;
+CREATE USER TREINAMENTO_HISOWER IDENTIFIED BY Treina123#;
 
-GRANT CONNECT, RESOURCE, CREATE VIEW, CREATE TRIGGER, CREATE PROCEDURE TO usr_treinamento;
+GRANT CONNECT, RESOURCE, CREATE VIEW, CREATE TRIGGER, CREATE PROCEDURE TO TREINAMENTO_HISOWER;
 
 -- ==========================================================
--- CONECTE-SE AGORA COMO USR_TREINAMENTO PARA CRIAR AS TABELAS
+-- CONECTE-SE AGORA COMO TREINAMENTO_HISOWER PARA CRIAR AS TABELAS
 -- ==========================================================
 CREATE TABLE clientes (
     id_cliente    NUMBER        CONSTRAINT pk_clientes PRIMARY KEY,
@@ -263,6 +230,28 @@ CREATE TABLE pedidos (
     CONSTRAINT fk_pedidos_cliente FOREIGN KEY (id_cliente)
         REFERENCES clientes (id_cliente)
 );`,
+    usageExample: {
+      title: 'Criação de Usuário de Leitura, Concessão Granular e Validação de TNS',
+      explanation: 'Demonstra como criar um segundo usuário de consulta (ex: analista de BI) com cota e privilégios mínimos no XEPDB1.',
+      sql: `-- Executado como SYSTEM conectado em XEPDB1:
+CREATE USER usr_consulta IDENTIFIED BY Consulta123#;
+
+GRANT CREATE SESSION TO usr_consulta;
+
+-- Executado como  (dono da tabela):
+GRANT SELECT ON TREINAMENTO_HISOWER.clientes TO usr_consulta;
+
+-- Teste de login com o alias configurado no tnsnames.ora:
+-- sqlplus usr_consulta/Consulta123#TREINAMENTO
+SELECT * FROM TREINAMENTO_HISOWER.clientes;
+
+`
+    },
+    title: 'Setup do Ambiente Oracle 18c XE, Users, Grants e TNSNAMES.ora',
+    shortTitle: 'Setup, Users & Grants',
+    conceptSummary: 'Nesta etapa abordaremos as estruturas que temos em nossos clientes ja previamente instalado e rodando varios cenarios de bancos de dados instalados, todos Oracle, porem com versões e infra estruturas diversificadas, bancos rodando na nuvem na OCI servidos pela propria HISOWER (VIG/Triunfo/Petrovina...), bancos rodando na OCI proprietario de Clientes (Dois Marcos), bancos rodando na AWS proprietario de Clientes (SSF,Trader), bancos rodando servidor local da Hisower (AGRICAMP, BIOSERVICOS, Nova Esperança...), bancos rodando servidor local no cliente (Sao Jeronimo, Torre, IMA, Condeagro...). Por aqui tambem veremos como acessamos esses clientes, Oracle Client Admin / instantclient, configuracao de TNSNAMES. Comandos de criação de USERS e Atribuição de privilégios como Grants e Quotas.',
+    durationMinutes: 15,
+    category: 'Administração Inicial',
     dmlScript: `-- ==========================================================
 -- SCRIPT DML INICIAL - POPULAÇÃO DE DADOS (USR_TREINAMENTO)
 -- ==========================================================
@@ -299,23 +288,21 @@ VALUES (103, 1, 850.00, 'ABERTO', SYSDATE);
 COMMIT;`,
     exercise: {
       title: 'Inspeção de Privilégios, Cota e Validação de TNS',
-      scenario:
-        'A equipe de auditoria externa precisa consultar apenas a tabela PEDIDOS do usuário USR_TREINAMENTO, sem permissão para alterar registros nem ver dados de outras tabelas, e conectando pelo alias XEPDB1.',
+      scenario: 'A equipe de auditoria externa precisa consultar apenas a tabela PEDIDOS do usuário USR_TREINAMENTO, sem permissão para alterar registros nem ver dados de outras tabelas, e conectando pelo alias XEPDB1.',
       tasks: [
-        'Conectado como SYSTEM (em XEPDB1), crie o usuário usr_auditor com senha Auditor123# e cota de 10M na tablespace USERS.',
+        'Conectado como SYSTEM (em TREINAMENTO), crie o usuário usr_auditor com senha Auditor123# e cota de 10M na tablespace LABV2BASETESTE.',
         'Conceda apenas permissão de login (CREATE SESSION) ao usr_auditor.',
-        'Conectado como usr_treinamento, conceda SELECT apenas na tabela pedidos para usr_auditor e valide a leitura.',
-        'Teste no CMD da sua máquina o comando tnsping XEPDB1 e verifique se o Listener responde com OK.',
+        'Conectado como TREINAMENTO_HISOWER, conceda SELECT apenas na tabela pedidos para usr_auditor e valide a leitura.',
+        'Teste no CMD da sua máquina o comando tnsping TREINAMENTO e verifique se o Listener responde com OK.'
       ],
-      solutionSql: `-- 1. Como SYSTEM (em XEPDB1):
+      solutionSql: `-- 1. Como SYSTEM (em TREINAMENTO):
 CREATE USER usr_auditor IDENTIFIED BY Auditor123#
-  DEFAULT TABLESPACE users
-  QUOTA 10M ON users;
+  QUOTA 10M ON LABV2BASETESTE;
 
 GRANT CREATE SESSION TO usr_auditor;
 
--- 2. Como USR_TREINAMENTO:
-GRANT SELECT ON pedidos TO usr_auditor;
+-- 2. Como TREINAMENTO_HISOWER:
+GRANT SELECT ON TREINAMENTO_HISOWER.pedidos TO usr_auditor;
 
 -- 3. Validando permissões concedidas no dicionário de dados:
 SELECT grantee, table_name, privilege
@@ -323,14 +310,15 @@ SELECT grantee, table_name, privilege
  WHERE grantee = 'USR_AUDITOR';
 
 -- 4. Teste de login como USR_AUDITOR:
-SELECT * FROM usr_treinamento.pedidos;`,
-      notes:
-        'Reforce com a turma que no Oracle, ao consultar objetos de outro schema, é necessário informar o prefixo do dono: SELECT * FROM usr_treinamento.pedidos;',
+SELECT * FROM TREINAMENTO_HISOWER.pedidos;`,
+      notes: 'Reforce com a turma que no Oracle, ao consultar objetos de outro schema, é necessário informar o prefixo do dono: SELECT * FROM usr_treinamento.pedidos;'
     },
     instructorTips: [
       'Rode o Script DDL e DML de Setup antes de começar o treinamento para já ter a base pronta na sua máquina.',
-      'Mostre aos alunos a pasta onde o tnsnames.ora reside e rode o comando tnsping XEPDB1 no terminal para todos verem.',
+      'Mostre aos alunos a pasta onde o tnsnames.ora reside e rode o comando tnsping TREINAMENTO no terminal para todos verem.'
     ],
+    id: 'mod-setup',
+    completed: false
   },
   {
     id: 'mod-plsqldev',
@@ -343,59 +331,110 @@ SELECT * FROM usr_treinamento.pedidos;`,
       'O PL/SQL Developer (Allround Automations) possui ajustes nativos essenciais que evitam commits acidentais ao fechar a ferramenta, eliminam digitação repetitiva com substituição automática de siglas e agilizam a montagem de filtros IN a partir de grades de resultados ou planilhas.',
     keyPoints: [
       {
-        title: '1. Rollback no Logoff / Disconnect',
+        title: 'Rollback no Logoff / Disconnect',
         pathOrSyntax: 'Configure > Preferences > Oracle > Connection > Logoff with open transaction > Rollback',
-        detail:
-          'Garante que, se o desenvolvedor esquecer um UPDATE/DELETE sem commit e fechar o aplicativo, a transação seja desfeita em vez de gravada silenciosamente.',
+        detail: 'Prevenir corrupção silenciosa de dados em produção. Por padrão em alguns clientes SQL, ao fechar a sessão ou desconectar, o driver pode executar um COMMIT implícito. Com esta opção ativada, qualquer transação esquecida aberta é abortada com segurança.',
         deepDive: {
-          purpose:
-            'Prevenir corrupção silenciosa de dados em produção. Por padrão em alguns clientes SQL, ao fechar a sessão ou desconectar, o driver pode executar um COMMIT implícito. Com esta opção ativada, qualquer transação esquecida aberta é abortada com segurança.',
+          purpose: 'Prevenir corrupção silenciosa de dados em produção. Por padrão em alguns clientes SQL, ao fechar a sessão ou desconectar, o driver pode executar um COMMIT implícito. Com esta opção ativada, qualquer transação esquecida aberta é abortada com segurança.',
           breakdownTitle: 'Comportamento da Preferência',
           breakdownItems: [
             {
               label: 'Opção ROLLBACK (Recomendada)',
-              description:
-                'Ao fechar a janela ou desconectar, o PL/SQL Developer emite um comando ROLLBACK no banco, cancelando qualquer DML incompleto.',
-              code: 'Preferences > Connection > Logoff: Rollback',
+              description: 'Ao fechar a janela ou desconectar, o PL/SQL Developer emite um comando ROLLBACK no banco, cancelando qualquer DML incompleto.',
+              code: 'Preferences > Connection > Logoff: Rollback'
             },
             {
               label: 'Opção COMMIT (Prática Não Recomendada)',
-              description:
-                'Grava no banco tudo o que estiver aberto na tela sem pedir confirmação!',
+              description: 'Grava no banco tudo o que estiver aberto na tela sem pedir confirmação!'
             },
             {
               label: 'Opção PROMPT',
-              description:
-                'Exibe uma caixa de diálogo perguntando se deseja salvar ou descartar.',
-            },
+              description: 'Exibe uma caixa de diálogo perguntando se deseja salvar ou descartar.'
+            }
           ],
+          codeExample: 'Configure > Preferences > Oracle > Connection > Logoff with open transaction > Rollback',
           productionGotchas: [
-            'Sempre configure Rollback em todas as instalações do PL/SQL Developer da sua equipe de suporte e sustentação.',
-          ],
-        },
+            'Sempre configure Rollback em todas as instalações do PL/SQL Developer da sua equipe de suporte e sustentação.'
+          ]
+        }
       },
       {
-        title: '2. AutoReplace (Expansão de Abreviações)',
-        pathOrSyntax: 'Configure > Preferences > User Interface > Editor > AutoReplace',
-        detail:
-          'Permite cadastrar gatilhos de texto: ao digitar "sft" + Espaço, o editor expande automaticamente para "SELECT * FROM ".',
+        title: 'Restaurar Alertas "Don\'t show again"',
+        pathOrSyntax: 'Configure > Preferences > User Interface > Options > Reset "Don\'t show again" flags',
+        detail: 'Recuperar proteções e avisos importantes que foram ocultados por pressa ou engano pelo desenvolvedor.',
         deepDive: {
-          purpose:
-            'Aumentar drasticamente a velocidade de codificação e reduzir erros de digitação de comandos repetitivos do dia a dia.',
+          purpose: 'Recuperar proteções e avisos importantes que foram ocultados por pressa ou engano pelo desenvolvedor.',
+          breakdownTitle: 'Detalhamento dos Elementos e Variações',
+          breakdownItems: [
+            {
+              label: 'Onde fica',
+              description: 'Preferences > User Interface > Options > Botão Reset "Don\'t show again" flags.'
+            },
+            {
+              label: 'Avisos críticos protegidos',
+              description: 'Confirmação antes de compilar objetos em schemas de homologação/produção e avisos de perda de conexão.'
+            }
+          ],
+          codeExample: 'Configure > Preferences > User Interface > Options > Reset "Don\'t show again" flags',
+          productionGotchas: []
+        }
+      },
+      {
+        title: 'Copy as Expression List',
+        pathOrSyntax: 'Grid de Resultados > Selecionar Células > Botão Direito > Copy as expression list',
+        detail: 'Eliminar o trabalho manual de colocar aspas, vírgulas e parênteses em centenas de IDs ao transferir dados do resultado de uma query para outra.',
+        deepDive: {
+          purpose: 'Eliminar o trabalho manual de colocar aspas, vírgulas e parênteses em centenas de IDs ao transferir dados do resultado de uma query para outra.',
+          breakdownTitle: 'Casos de Uso e Limites do Oracle',
+          breakdownItems: [
+            {
+              label: 'Formatador Inteligente',
+              description: 'Se a coluna for VARCHAR2, ele adiciona aspas simples automaticamente. Se for NUMBER, copia apenas os números separados por vírgula.'
+            },
+            {
+              label: 'Limite de 1000 Itens da Cláusula IN no Oracle',
+              description: 'Lembre à turma que o comando WHERE campo IN (...) tem um limite estrito de 1.000 expressões no Oracle (erro ORA-01795). Para mais de 1000 itens, deve-se usar tabela temporária ou subquery.',
+              code: 'ORA-01795: maximum number of expressions in a list is 1000'
+            }
+          ],
+          codeExample: 'Grid de Resultados > Selecionar Células > Botão Direito > Copy as expression list',
+          productionGotchas: []
+        }
+      },
+      {
+        title: 'AutoReplace (Expansão de Abreviações)',
+        pathOrSyntax: 'Configure > Preferences > User Interface > Editor > AutoReplace',
+        detail: 'Aumentar drasticamente a velocidade de codificação e reduzir erros de digitação de comandos repetitivos do dia a dia.',
+        deepDive: {
+          purpose: 'Aumentar drasticamente a velocidade de codificação e reduzir erros de digitação de comandos repetitivos do dia a dia.',
           breakdownTitle: 'Como Configurar o Arquivo autoreplace.txt',
           breakdownItems: [
             {
               label: 'Sintaxe básica',
               description: 'sigla=texto completo a ser expandido após pressionar espaço ou enter.',
-              code: 'sft=SELECT * FROM \nsc=SELECT COUNT(1) FROM ',
+              code: `sft=SELECT * FROM 
+sc=SELECT COUNT(1) FROM `
             },
             {
               label: 'Compatibilidade com múltiplos desenvolvedores',
-              description:
-                'O arquivo de atalhos pode ser compartilhado em rede para toda a equipe de banco de dados.',
-            },
+              description: 'O arquivo de atalhos pode ser compartilhado em rede para toda a equipe de banco de dados.'
+            }
           ],
           codeExample: `# Atalhos mais populares para o dia a dia:
+S*F = SELECT * FROM
+S*FU = SELECT T.*,T.ROWID FROM &TABELA T ORDER BY 1 DESC
+S*FROWID = SELECT T.*,T.ROWID FROM &TABELA T
+S*ROWID = SELECT T.*,T.ROWID FROM &TABELA T
+OCA = ORDEMCARREGAMENTO
+T_ICA = ITENSCARREGAMENTO
+T_CAR = CARREGAMENTOS
+T_EB = EMBALAGENS_BAG
+RAISE = RAISE_APPLICATION_ERROR (-20200,'');
+PUTLINE = DBMS_OUTPUT.PUT_LINE ('');
+sp = sementes.pedidos
+OUTPUT = set serveroutput on size unlimited
+DECWOK = DECLARE WOK NUMBER; BEGIN  END;
+lock = SELECT A.OSUSER || ':' || A.
 sft=SELECT * FROM 
 sc=SELECT COUNT(1) FROM 
 sfw=SELECT * FROM  WHERE 1=1
@@ -403,66 +442,35 @@ upw=UPDATE  SET  WHERE
 dfw=DELETE FROM  WHERE 
 co=CREATE OR REPLACE 
 dbms=DBMS_OUTPUT.PUT_LINE('');`,
-        },
-      },
-      {
-        title: '3. Copy as Expression List',
-        pathOrSyntax: 'Grid de Resultados > Selecionar Células > Botão Direito > Copy as expression list',
-        detail:
-          'Transforma instantaneamente uma coluna selecionada em uma lista formatada como (101, 102, 103) ou (\'ATIVO\', \'INATIVO\') pronta para colar dentro de um WHERE ... IN (...).',
-        deepDive: {
-          purpose:
-            'Eliminar o trabalho manual de colocar aspas, vírgulas e parênteses em centenas de IDs ao transferir dados do resultado de uma query para outra.',
-          breakdownTitle: 'Casos de Uso e Limites do Oracle',
-          breakdownItems: [
-            {
-              label: 'Formatador Inteligente',
-              description:
-                'Se a coluna for VARCHAR2, ele adiciona aspas simples automaticamente. Se for NUMBER, copia apenas os números separados por vírgula.',
-            },
-            {
-              label: 'Limite de 1000 Itens da Cláusula IN no Oracle',
-              description:
-                'Lembre à turma que o comando WHERE campo IN (...) tem um limite estrito de 1.000 expressões no Oracle (erro ORA-01795). Para mais de 1000 itens, deve-se usar tabela temporária ou subquery.',
-              code: 'ORA-01795: maximum number of expressions in a list is 1000',
-            },
-          ],
-        },
-      },
-      {
-        title: '4. Restaurar Alertas "Don\'t show again"',
-        pathOrSyntax: 'Configure > Preferences > User Interface > Options > Reset "Don\'t show again" flags',
-        detail:
-          'Recupera caixas de diálogo de confirmação (ex: aviso de compilação em outro schema ou commit pendente) marcadas acidentalmente com "Don\'t show this message again".',
-        deepDive: {
-          purpose:
-            'Recuperar proteções e avisos importantes que foram ocultados por pressa ou engano pelo desenvolvedor.',
-          breakdownItems: [
-            {
-              label: 'Onde fica',
-              description: 'Preferences > User Interface > Options > Botão Reset "Don\'t show again" flags.',
-            },
-            {
-              label: 'Avisos críticos protegidos',
-              description:
-                'Confirmação antes de compilar objetos em schemas de homologação/produção e avisos de perda de conexão.',
-            },
-          ],
-        },
-      },
+          productionGotchas: []
+        }
+      }
     ],
     usageExample: {
       title: 'Arquivo Padrão de AutoReplace para Distribuir à Turma',
-      explanation:
-        'Os alunos podem colar estas definições diretamente na janela Edit do AutoReplace para padronizar os atalhos de produtividade da equipe.',
+      explanation: 'Os alunos podem colar estas definições diretamente na janela Edit do AutoReplace para padronizar os atalhos de produtividade da equipe.',
       sql: `-- Cole no menu: Preferences > User Interface > Editor > AutoReplace > Edit
+S*F = SELECT * FROM
+S*FU = SELECT T.*,T.ROWID FROM &TABELA T ORDER BY 1 DESC
+S*FROWID = SELECT T.*,T.ROWID FROM &TABELA T
+S*ROWID = SELECT T.*,T.ROWID FROM &TABELA T
+OCA = ORDEMCARREGAMENTO
+T_ICA = ITENSCARREGAMENTO
+T_CAR = CARREGAMENTOS
+T_EB = EMBALAGENS_BAG
+RAISE = RAISE_APPLICATION_ERROR (-20200,'');
+PUTLINE = DBMS_OUTPUT.PUT_LINE ('');
+sp = sementes.pedidos
+OUTPUT = set serveroutput on size unlimited
+DECWOK = DECLARE WOK NUMBER; BEGIN  END;
+lock = SELECT A.OSUSER || ':' || A.
 sft=SELECT * FROM 
 sc=SELECT COUNT(1) FROM 
 sfw=SELECT * FROM  WHERE 1=1
 upw=UPDATE  SET  WHERE 
 dfw=DELETE FROM  WHERE 
 co=CREATE OR REPLACE 
-dbms=DBMS_OUTPUT.PUT_LINE('');`,
+dbms=DBMS_OUTPUT.PUT_LINE('');`
     },
     exercise: {
       title: 'Configuração Guiada + Uso Real do Copy as Expression List',
@@ -487,9 +495,9 @@ SELECT *
     instructorTips: [
       'Mostre onde fica o cadeado do Grid ("Edit data") e por que preferimos scripts UPDATE explícitos em vez de editar células manualmente.',
       'Demonstre marcar um alerta com "Don\'t show again" de propósito e restaurá-lo logo em seguida no painel Options.',
-    ],
+    ]
   },
-  {
+{
     id: 'mod-ddl-dml',
     title: 'DDL vs DML, Commit Automático, Backup CTAS e Subquery IN',
     shortTitle: 'DDL vs DML, CTAS & IN',

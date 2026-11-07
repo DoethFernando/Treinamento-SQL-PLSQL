@@ -147,12 +147,47 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
   }
 }
 
+// Global active subscriber listener for on-demand checks (e.g. step navigation)
+let activeParticipantSyncCallback: ((sync: LiveClassroomSync) => void) | null = null;
 let publishDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Triggers an immediate refresh from the server when participant changes step or window focuses
+ */
+export async function triggerParticipantContentCheck(): Promise<void> {
+  if (!activeParticipantSyncCallback) return;
+  try {
+    const res = await fetch('/api/sync');
+    if (res.ok) {
+      const json = await res.json();
+      if (json.ok && json.data) {
+        console.log('[LiveSync] Validação manual da etapa concluída via /api/sync:', json.data);
+        activeParticipantSyncCallback(json.data as LiveClassroomSync);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
 
 /**
  * Publish updated classroom state from instructor to all participants worldwide
  */
 export function publishLiveSync(payload: LiveClassroomSync, debounceMs = 100): void {
+  // CRITICAL GUARD: Only the authenticated instructor can ever publish!
+  if (typeof window !== 'undefined') {
+    try {
+      const isAuth = sessionStorage.getItem('oracle_instructor_auth_v2') === 'true';
+      const isStudent = localStorage.getItem('oracle_training_view_mode_v2') === 'aluno';
+      if (!isAuth && isStudent) {
+        // Participants are strictly read-only! Never broadcast or overwrite classroom state.
+        return;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   // 1. Instant local delivery between open tabs on the same computer (<1ms)
   if (localClassroomChannel) {
     try {
@@ -249,12 +284,13 @@ async function parseNtfyRecord(raw: any): Promise<LiveClassroomSync | null> {
 
 /**
  * Subscribe participants to real-time events via local BroadcastChannel,
- * server-side SSE (/api/sync/events), and ntfy.sh fallback.
+ * server-side SSE (/api/sync/events), and periodic 10s poll.
  */
 export function subscribeToLiveSync(
   onSyncReceived: (sync: LiveClassroomSync) => void
 ): () => void {
   let isSubscribed = true;
+  activeParticipantSyncCallback = onSyncReceived;
 
   // 1. Instant local BroadcastChannel listener (<1ms) for split-screen tabs on the same device
   const handleLocalChannelMessage = (event: MessageEvent) => {
@@ -269,14 +305,14 @@ export function subscribeToLiveSync(
     localClassroomChannel.addEventListener('message', handleLocalChannelMessage);
   }
 
-  // 2. Initial fetch from local server /api/sync
+  // 2. Initial fetch and periodic validation from local server /api/sync
   const fetchServerState = async (): Promise<boolean> => {
     try {
       const res = await fetch('/api/sync');
       if (res.ok) {
         const json = await res.json();
         if (json.ok && json.data && isSubscribed) {
-          console.log('[LiveSync] Estado inicial carregado via /api/sync:', json.data);
+          console.log('[LiveSync] Conteúdo sincronizado via /api/sync:', json.data);
           onSyncReceived(json.data as LiveClassroomSync);
           return true;
         }
@@ -287,7 +323,13 @@ export function subscribeToLiveSync(
     return false;
   };
 
-  fetchServerState();
+  // Run initial fetch from server immediately
+  fetchServerState().then((serverOk) => {
+    // Only if server has NO data at all (first cold start), check ntfy history
+    if (!serverOk) {
+      fetchNtfyState();
+    }
+  });
 
   // 3. Real-Time Server-Sent Events (SSE) from our server (/api/sync/events)
   let serverEventSource: EventSource | null = null;
@@ -309,7 +351,7 @@ export function subscribeToLiveSync(
     // ignore
   }
 
-  // 4. Initial fetch from ntfy fallback (runs immediately on F5 or first page open if server empty)
+  // 4. Initial fetch from ntfy fallback (only used if server is down or empty)
   const fetchNtfyState = async () => {
     try {
       const res = await fetch(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}/json?poll=1`);
@@ -326,7 +368,7 @@ export function subscribeToLiveSync(
           if (parsed.event === 'message') {
             const syncPayload = await parseNtfyRecord(parsed);
             if (syncPayload && isSubscribed) {
-              console.log('[LiveSync] Estado inicial carregado via ntfy poll:', syncPayload);
+              console.log('[LiveSync] Estado recuperado via ntfy poll fallback:', syncPayload);
               onSyncReceived(syncPayload);
               return;
             }
@@ -340,52 +382,25 @@ export function subscribeToLiveSync(
     }
   };
 
-  fetchNtfyState();
-
-  // 5. Real-Time SSE Listener on ntfy as external backup
-  let ntfyEventSource: EventSource | null = null;
-  try {
-    ntfyEventSource = new EventSource(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}/sse`);
-
-    ntfyEventSource.onmessage = async (event) => {
-      if (!isSubscribed) return;
-      try {
-        const parsed = JSON.parse(event.data);
-        if (parsed.event === 'message') {
-          const syncPayload = await parseNtfyRecord(parsed);
-          if (syncPayload && isSubscribed) {
-            console.log('[LiveSync] Atualização recebida via ntfy SSE:', syncPayload);
-            onSyncReceived(syncPayload);
-          }
-        }
-      } catch {
-        // ignore malformed events
-      }
-    };
-  } catch (err) {
-    console.warn('ntfy SSE indisponível:', err);
-  }
-
-  // 6. Polling backup (every 6 seconds)
-  const fallbackInterval = setInterval(() => {
+  // 5. Periodic verification every 10 seconds (as requested by user)
+  // Ensures participant stays 100% updated with instructor's latest edits, block texts and scripts
+  const validationInterval = setInterval(() => {
     if (isSubscribed) {
       fetchServerState().then((ok) => {
         if (!ok) fetchNtfyState();
       });
     }
-  }, 6000);
+  }, 10000);
 
   return () => {
     isSubscribed = false;
-    clearInterval(fallbackInterval);
+    activeParticipantSyncCallback = null;
+    clearInterval(validationInterval);
     if (localClassroomChannel) {
       localClassroomChannel.removeEventListener('message', handleLocalChannelMessage);
     }
     if (serverEventSource) {
       serverEventSource.close();
-    }
-    if (ntfyEventSource) {
-      ntfyEventSource.close();
     }
     if (publishDebounceTimer) {
       clearTimeout(publishDebounceTimer);

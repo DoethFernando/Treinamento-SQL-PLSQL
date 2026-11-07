@@ -52,6 +52,7 @@ import {
   LiveClassroomSync,
   publishLiveSync,
   subscribeToLiveSync,
+  triggerParticipantContentCheck,
 } from './services/liveSyncService';
 
 const MODULES_STORAGE_KEY = 'oracle18xe_training_modules_v3';
@@ -278,19 +279,23 @@ export default function App() {
   }, [isStudentView, activeNav]);
 
   // Synchronize Active Module with local storage so student/projector tab can follow instructor live
+  // CRITICAL: Only the instructor writes to ACTIVE_MODULE_SYNC_KEY!
   useEffect(() => {
-    try {
-      localStorage.setItem(ACTIVE_MODULE_SYNC_KEY, activeModuleId);
-    } catch {
-      // ignore
+    if (!isStudentView) {
+      try {
+        localStorage.setItem(ACTIVE_MODULE_SYNC_KEY, activeModuleId);
+      } catch {
+        // ignore
+      }
     }
-  }, [activeModuleId]);
+  }, [activeModuleId, isStudentView]);
 
   const isApplyingRemoteSyncRef = React.useRef(false);
 
   // Subscribe participants to real-time classroom updates from instructor
   useEffect(() => {
     const unsubscribe = subscribeToLiveSync((sync: LiveClassroomSync) => {
+      // ONLY participant tabs apply remote sync! Instructor is authoritative master.
       if (isStudentView) {
         isApplyingRemoteSyncRef.current = true;
         setModules((prev) => {
@@ -344,16 +349,20 @@ export default function App() {
   }, [isStudentView, selectedKeyPoint, activeModuleId]);
 
   // Synchronize timer state
+  // CRITICAL: ONLY the instructor writes to TIMER_SYNC_KEY!
+  // Participant tabs opening in new tabs/windows must NEVER write 0s or false here.
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        TIMER_SYNC_KEY,
-        JSON.stringify({ secondsElapsed, timerRunning, timestamp: Date.now() })
-      );
-    } catch {
-      // ignore
+    if (!isStudentView) {
+      try {
+        localStorage.setItem(
+          TIMER_SYNC_KEY,
+          JSON.stringify({ secondsElapsed, timerRunning, timestamp: Date.now() })
+        );
+      } catch {
+        // ignore
+      }
     }
-  }, [secondsElapsed, timerRunning]);
+  }, [secondsElapsed, timerRunning, isStudentView]);
 
   // Broadcast any instructor updates (modules, order, status, timer, modified content) to participants worldwide
   useEffect(() => {
@@ -370,10 +379,15 @@ export default function App() {
   }, [isStudentView, modules, activeModuleId, timerRunning, modifiedModules]);
 
   // Listen to cross-tab updates (e.g. Instructor changes module or status in another tab/window)
+  // ONLY participants accept remote changes from localStorage. The Instructor is the authoritative source!
   useEffect(() => {
+    if (!isStudentView) {
+      // Instructor NEVER listens to cross-tab storage events that could reset their timer or state
+      return;
+    }
+
     const handleStorageUpdate = (e: StorageEvent) => {
-      // ONLY participant tab should sync from instructor's localStorage changes
-      if (isStudentView && e.key === MODULES_STORAGE_KEY && e.newValue) {
+      if (e.key === MODULES_STORAGE_KEY && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -385,9 +399,6 @@ export default function App() {
       }
       if (e.key === ACTIVE_MODULE_SYNC_KEY && e.newValue) {
         setInstructorActiveModuleId(e.newValue);
-        if (!isStudentView) {
-          setActiveModuleId(e.newValue);
-        }
       }
       if (e.key === TIMER_SYNC_KEY && e.newValue) {
         try {
@@ -463,6 +474,9 @@ export default function App() {
     setActiveModuleId(id);
     if (!isStudentView) {
       publishLiveSync(buildSyncPayload(modules, id, secondsElapsed, timerRunning, modifiedModules), 50);
+    } else {
+      // Quando o participante muda de etapa, valida imediatamente com o servidor para sincronizar edições do instrutor
+      triggerParticipantContentCheck();
     }
   };
 
