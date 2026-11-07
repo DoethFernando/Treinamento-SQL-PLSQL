@@ -1,6 +1,6 @@
 import { TrainingModule } from '../types/training';
 
-export const LIVE_SYNC_TOPIC = 'oracle18xe_treinamento_live_sync_20261107';
+export const LIVE_SYNC_TOPIC = 'oracle18xe_treinamento_live_sync_v4';
 const NTFY_BASE_URL = 'https://ntfy.sh';
 
 export interface LiveClassroomSync {
@@ -153,13 +153,20 @@ export function publishLiveSync(payload: LiveClassroomSync, debounceMs = 100): v
 
   const executePublish = async () => {
     try {
+      const body = JSON.stringify(payload);
       await fetch(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/plain',
           Title: 'Treinamento Oracle 18c XE Sync',
         },
-        body: JSON.stringify(payload),
+        body,
+      });
+      console.log('[LiveSync] Broadcast enviado com sucesso:', {
+        activeModuleId: payload.activeModuleId,
+        completed: payload.completedModuleIds?.length,
+        timerRunning: payload.stopwatch?.timerRunning,
+        seconds: payload.stopwatch?.secondsElapsed,
       });
     } catch (err) {
       console.warn('Falha temporária ao sincronizar com participantes:', err);
@@ -208,7 +215,6 @@ export function subscribeToLiveSync(
   onSyncReceived: (sync: LiveClassroomSync) => void
 ): () => void {
   let isSubscribed = true;
-  let lastProcessedUpdatedAt = 0;
 
   // 1. Initial fetch (runs immediately on F5 or first page open)
   const fetchLatestState = async () => {
@@ -226,13 +232,8 @@ export function subscribeToLiveSync(
           const parsed = JSON.parse(line);
           if (parsed.event === 'message') {
             const syncPayload = await parseNtfyRecord(parsed);
-            if (
-              syncPayload &&
-              syncPayload.updatedAt &&
-              syncPayload.updatedAt >= lastProcessedUpdatedAt &&
-              isSubscribed
-            ) {
-              lastProcessedUpdatedAt = syncPayload.updatedAt;
+            if (syncPayload && isSubscribed) {
+              console.log('[LiveSync] Estado inicial carregado via poll:', syncPayload);
               onSyncReceived(syncPayload);
               return;
             }
@@ -259,13 +260,8 @@ export function subscribeToLiveSync(
         const parsed = JSON.parse(event.data);
         if (parsed.event === 'message') {
           const syncPayload = await parseNtfyRecord(parsed);
-          if (
-            syncPayload &&
-            syncPayload.updatedAt &&
-            syncPayload.updatedAt >= lastProcessedUpdatedAt &&
-            isSubscribed
-          ) {
-            lastProcessedUpdatedAt = syncPayload.updatedAt;
+          if (syncPayload && isSubscribed) {
+            console.log('[LiveSync] Atualização recebida via SSE:', syncPayload);
             onSyncReceived(syncPayload);
           }
         }

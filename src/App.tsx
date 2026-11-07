@@ -377,7 +377,7 @@ export default function App() {
 
     window.addEventListener('storage', handleStorageUpdate);
     return () => window.removeEventListener('storage', handleStorageUpdate);
-  }, []);
+  }, [isStudentView]);
 
   useEffect(() => {
     if (!timerRunning) return;
