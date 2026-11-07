@@ -29,26 +29,24 @@ export function buildSyncPayload(
 ): LiveClassroomSync {
   const completedModuleIds = modules.filter((m) => m.completed).map((m) => m.id);
   const moduleDurations: Record<string, number> = {};
-  const keyPointOrders: Record<string, string[]> = {};
 
   modules.forEach((mod) => {
     if (mod.completedDurationSeconds !== undefined) {
       moduleDurations[mod.id] = mod.completedDurationSeconds;
     }
-    keyPointOrders[mod.id] = mod.keyPoints.map((kp) => kp.title);
   });
 
   const customModules = modules.filter((m) => m.isCustom);
 
   return {
-    version: 3,
+    version: 4,
     updatedAt: Date.now(),
     activeModuleId,
     completedModuleIds,
     moduleDurations,
-    keyPointOrders,
     modifiedModules: modifiedModules && Object.keys(modifiedModules).length > 0 ? modifiedModules : undefined,
     customModules: customModules.length > 0 ? customModules : undefined,
+    modules, // Lista completa com edições, scripts e status atualizados
     stopwatch: {
       secondsElapsed,
       timerRunning,
@@ -63,65 +61,64 @@ export function applySyncToModules(
 ): TrainingModule[] {
   let result = [...currentModules];
 
-  // 1. Adicionar novos tópicos customizados criados pelo instrutor
-  if (Array.isArray(sync.customModules) && sync.customModules.length > 0) {
-    sync.customModules.forEach((cm) => {
-      if (!result.some((m) => m.id === cm.id)) {
-        result.push(cm);
-      }
-    });
-  }
-
-  // 2. Aplicar lista completa de módulos se transmitida
+  // 1. Se a lista completa de módulos foi transmitida (/api/sync ou BroadcastChannel)
   if (Array.isArray(sync.modules) && sync.modules.length > 0) {
     result = sync.modules;
-  }
+  } else {
+    // 2. Adicionar novos tópicos customizados criados pelo instrutor
+    if (Array.isArray(sync.customModules) && sync.customModules.length > 0) {
+      sync.customModules.forEach((cm) => {
+        if (!result.some((m) => m.id === cm.id)) {
+          result.push(cm);
+        }
+      });
+    }
 
-  // 3. Aplicar edições de conteúdo e scripts feitas pelo instrutor
-  if (sync.modifiedModules) {
-    result = result.map((m) => {
-      const patch = sync.modifiedModules?.[m.id];
-      if (patch) {
-        return {
-          ...m,
-          ...patch,
-          usageExample: patch.usageExample
-            ? { ...m.usageExample, ...patch.usageExample }
-            : m.usageExample,
-          exercise: patch.exercise
-            ? { ...m.exercise, ...patch.exercise }
-            : m.exercise,
-        };
-      }
-      return m;
-    });
-  }
+    // 3. Aplicar edições de conteúdo e scripts feitas pelo instrutor
+    if (sync.modifiedModules) {
+      result = result.map((m) => {
+        const patch = sync.modifiedModules?.[m.id];
+        if (patch) {
+          return {
+            ...m,
+            ...patch,
+            usageExample: patch.usageExample
+              ? { ...m.usageExample, ...patch.usageExample }
+              : m.usageExample,
+            exercise: patch.exercise
+              ? { ...m.exercise, ...patch.exercise }
+              : m.exercise,
+          };
+        }
+        return m;
+      });
+    }
 
-  // 4. Aplicar nova ordem dos blocos caso o instrutor tenha reordenado
-  if (sync.keyPointOrders) {
-    result = result.map((mod) => {
-      // Se patch já continha keyPoints completos e atualizados, não sobrescreve
-      if (sync.modifiedModules?.[mod.id]?.keyPoints) {
+    // 4. Aplicar nova ordem dos blocos caso o instrutor tenha reordenado
+    if (sync.keyPointOrders) {
+      result = result.map((mod) => {
+        if (sync.modifiedModules?.[mod.id]?.keyPoints) {
+          return mod;
+        }
+        const savedOrder = sync.keyPointOrders?.[mod.id];
+        if (savedOrder && savedOrder.length > 0) {
+          const orderMap = new Map<string, number>();
+          savedOrder.forEach((title, idx) => orderMap.set(title, idx));
+
+          const reordered = [...mod.keyPoints].sort((a, b) => {
+            const orderA = orderMap.has(a.title) ? orderMap.get(a.title)! : 999;
+            const orderB = orderMap.has(b.title) ? orderMap.get(b.title)! : 999;
+            return orderA - orderB;
+          });
+
+          return { ...mod, keyPoints: reordered };
+        }
         return mod;
-      }
-      const savedOrder = sync.keyPointOrders?.[mod.id];
-      if (savedOrder && savedOrder.length > 0) {
-        const orderMap = new Map<string, number>();
-        savedOrder.forEach((title, idx) => orderMap.set(title, idx));
-
-        const reordered = [...mod.keyPoints].sort((a, b) => {
-          const orderA = orderMap.has(a.title) ? orderMap.get(a.title)! : 999;
-          const orderB = orderMap.has(b.title) ? orderMap.get(b.title)! : 999;
-          return orderA - orderB;
-        });
-
-        return { ...mod, keyPoints: reordered };
-      }
-      return mod;
-    });
+      });
+    }
   }
 
-  // 5. Atualizar sinalizadores de conclusão e tempos de cada etapa
+  // 5. Garantir sincronização estrita de módulos concluídos e durações
   const completedIds = Array.isArray(sync.completedModuleIds) ? sync.completedModuleIds : [];
   return result.map((mod) => {
     const isCompleted = completedIds.includes(mod.id);
@@ -150,11 +147,11 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
   }
 }
 
+let publishDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
  * Publish updated classroom state from instructor to all participants worldwide
  */
-let publishDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
 export function publishLiveSync(payload: LiveClassroomSync, debounceMs = 100): void {
   // 1. Instant local delivery between open tabs on the same computer (<1ms)
   if (localClassroomChannel) {
@@ -165,14 +162,34 @@ export function publishLiveSync(payload: LiveClassroomSync, debounceMs = 100): v
     }
   }
 
+  // 2. Publish to our primary Express backend (/api/sync) for all links (dev, shared, mobile)
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {
+        // Fallback silently if offline
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   if (publishDebounceTimer) {
     clearTimeout(publishDebounceTimer);
     publishDebounceTimer = null;
   }
 
-  const executePublish = async () => {
+  // 3. Fallback broadcast to ntfy.sh with compact payload (<3KB, without full array to avoid attachment truncation)
+  const executeNtfyPublish = async () => {
     try {
-      const body = JSON.stringify(payload);
+      const compactPayload: LiveClassroomSync = {
+        ...payload,
+        modules: undefined, // Strip large modules array for ntfy to stay well under 4KB limit
+      };
+      const body = JSON.stringify(compactPayload);
       await fetch(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}`, {
         method: 'POST',
         headers: {
@@ -188,14 +205,14 @@ export function publishLiveSync(payload: LiveClassroomSync, debounceMs = 100): v
         seconds: payload.stopwatch?.secondsElapsed,
       });
     } catch (err) {
-      console.warn('Falha temporária ao sincronizar com participantes:', err);
+      console.warn('Falha temporária ao sincronizar com participantes via ntfy:', err);
     }
   };
 
   if (debounceMs <= 0) {
-    executePublish();
+    executeNtfyPublish();
   } else {
-    publishDebounceTimer = setTimeout(executePublish, debounceMs);
+    publishDebounceTimer = setTimeout(executeNtfyPublish, debounceMs);
   }
 }
 
@@ -206,9 +223,13 @@ async function parseNtfyRecord(raw: any): Promise<LiveClassroomSync | null> {
   try {
     if (raw && typeof raw === 'object') {
       if (raw.attachment && raw.attachment.url) {
-        const resp = await fetch(raw.attachment.url);
-        if (resp.ok) {
-          return (await resp.json()) as LiveClassroomSync;
+        try {
+          const resp = await fetch(raw.attachment.url);
+          if (resp.ok) {
+            return (await resp.json()) as LiveClassroomSync;
+          }
+        } catch {
+          // ignore attachment fetch error
         }
       }
       if (typeof raw.message === 'object' && raw.message !== null) {
@@ -227,8 +248,8 @@ async function parseNtfyRecord(raw: any): Promise<LiveClassroomSync | null> {
 }
 
 /**
- * Subscribe participants to real-time events via Server-Sent Events (SSE)
- * and initial fetch on page load/F5.
+ * Subscribe participants to real-time events via local BroadcastChannel,
+ * server-side SSE (/api/sync/events), and ntfy.sh fallback.
  */
 export function subscribeToLiveSync(
   onSyncReceived: (sync: LiveClassroomSync) => void
@@ -248,8 +269,48 @@ export function subscribeToLiveSync(
     localClassroomChannel.addEventListener('message', handleLocalChannelMessage);
   }
 
-  // 2. Initial fetch (runs immediately on F5 or first page open)
-  const fetchLatestState = async () => {
+  // 2. Initial fetch from local server /api/sync
+  const fetchServerState = async (): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/sync');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && json.data && isSubscribed) {
+          console.log('[LiveSync] Estado inicial carregado via /api/sync:', json.data);
+          onSyncReceived(json.data as LiveClassroomSync);
+          return true;
+        }
+      }
+    } catch {
+      // server endpoint not reachable
+    }
+    return false;
+  };
+
+  fetchServerState();
+
+  // 3. Real-Time Server-Sent Events (SSE) from our server (/api/sync/events)
+  let serverEventSource: EventSource | null = null;
+  try {
+    serverEventSource = new EventSource('/api/sync/events');
+    serverEventSource.onmessage = (event) => {
+      if (!isSubscribed) return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data && data.version) {
+          console.log('[LiveSync] Atualização recebida via SSE do Servidor:', data);
+          onSyncReceived(data as LiveClassroomSync);
+        }
+      } catch {
+        // ignore
+      }
+    };
+  } catch {
+    // ignore
+  }
+
+  // 4. Initial fetch from ntfy fallback (runs immediately on F5 or first page open if server empty)
+  const fetchNtfyState = async () => {
     try {
       const res = await fetch(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}/json?poll=1`);
       if (!res.ok) return;
@@ -265,7 +326,7 @@ export function subscribeToLiveSync(
           if (parsed.event === 'message') {
             const syncPayload = await parseNtfyRecord(parsed);
             if (syncPayload && isSubscribed) {
-              console.log('[LiveSync] Estado inicial carregado via poll:', syncPayload);
+              console.log('[LiveSync] Estado inicial carregado via ntfy poll:', syncPayload);
               onSyncReceived(syncPayload);
               return;
             }
@@ -279,21 +340,21 @@ export function subscribeToLiveSync(
     }
   };
 
-  fetchLatestState();
+  fetchNtfyState();
 
-  // 3. Real-Time SSE Listener (sub-second instant delivery when instructor changes anything)
-  let eventSource: EventSource | null = null;
+  // 5. Real-Time SSE Listener on ntfy as external backup
+  let ntfyEventSource: EventSource | null = null;
   try {
-    eventSource = new EventSource(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}/sse`);
+    ntfyEventSource = new EventSource(`${NTFY_BASE_URL}/${LIVE_SYNC_TOPIC}/sse`);
 
-    eventSource.onmessage = async (event) => {
+    ntfyEventSource.onmessage = async (event) => {
       if (!isSubscribed) return;
       try {
         const parsed = JSON.parse(event.data);
         if (parsed.event === 'message') {
           const syncPayload = await parseNtfyRecord(parsed);
           if (syncPayload && isSubscribed) {
-            console.log('[LiveSync] Atualização recebida via SSE:', syncPayload);
+            console.log('[LiveSync] Atualização recebida via ntfy SSE:', syncPayload);
             onSyncReceived(syncPayload);
           }
         }
@@ -301,20 +362,18 @@ export function subscribeToLiveSync(
         // ignore malformed events
       }
     };
-
-    eventSource.onerror = () => {
-      // Browser EventSource automatically reconnects
-    };
   } catch (err) {
-    console.warn('SSE indisponível, usando fallback por intervalo:', err);
+    console.warn('ntfy SSE indisponível:', err);
   }
 
-  // 4. Fallback Interval (every 5 seconds in case SSE disconnected)
+  // 6. Polling backup (every 6 seconds)
   const fallbackInterval = setInterval(() => {
     if (isSubscribed) {
-      fetchLatestState();
+      fetchServerState().then((ok) => {
+        if (!ok) fetchNtfyState();
+      });
     }
-  }, 5000);
+  }, 6000);
 
   return () => {
     isSubscribed = false;
@@ -322,8 +381,11 @@ export function subscribeToLiveSync(
     if (localClassroomChannel) {
       localClassroomChannel.removeEventListener('message', handleLocalChannelMessage);
     }
-    if (eventSource) {
-      eventSource.close();
+    if (serverEventSource) {
+      serverEventSource.close();
+    }
+    if (ntfyEventSource) {
+      ntfyEventSource.close();
     }
     if (publishDebounceTimer) {
       clearTimeout(publishDebounceTimer);

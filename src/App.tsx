@@ -226,13 +226,16 @@ export default function App() {
   }, [toastMessage]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(modules));
-      setLastSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-    } catch {
-      // ignore storage quota errors
+    // Only instructor saves to MODULES_STORAGE_KEY to prevent participant tabs from overriding state
+    if (!isStudentView && !isApplyingRemoteSyncRef.current) {
+      try {
+        localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(modules));
+        setLastSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      } catch {
+        // ignore storage quota errors
+      }
     }
-  }, [modules]);
+  }, [modules, isStudentView]);
 
   useEffect(() => {
     try {
@@ -253,12 +256,15 @@ export default function App() {
   }, [scratchpad]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('oracle_training_modified_modules_v2', JSON.stringify(modifiedModules));
-    } catch {
-      // ignore
+    // Only instructor writes modifiedModules to localStorage
+    if (!isStudentView) {
+      try {
+        localStorage.setItem('oracle_training_modified_modules_v2', JSON.stringify(modifiedModules));
+      } catch {
+        // ignore
+      }
     }
-  }, [modifiedModules]);
+  }, [modifiedModules, isStudentView]);
 
   useEffect(() => {
     try {
@@ -287,7 +293,29 @@ export default function App() {
     const unsubscribe = subscribeToLiveSync((sync: LiveClassroomSync) => {
       if (isStudentView) {
         isApplyingRemoteSyncRef.current = true;
-        setModules((prev) => applySyncToModules(prev, sync));
+        setModules((prev) => {
+          const updated = applySyncToModules(prev, sync);
+          // If deep-dive modal was open, refresh the selected keypoint with updated data
+          if (selectedKeyPoint) {
+            const currentMod = updated.find((m) => m.id === activeModuleId);
+            if (currentMod) {
+              const matchedKp = currentMod.keyPoints.find(
+                (kp) => kp.title === selectedKeyPoint.title || kp.detail === selectedKeyPoint.detail
+              );
+              if (matchedKp) {
+                setSelectedKeyPoint(matchedKp);
+              }
+            }
+          }
+          return updated;
+        });
+
+        if (sync.modifiedModules) {
+          setModifiedModules((prev) => ({
+            ...prev,
+            ...sync.modifiedModules,
+          }));
+        }
 
         if (sync.activeModuleId) {
           // Updates the instructor beacon ("Em Aula") without hijacking participant's current page view
@@ -313,7 +341,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [isStudentView]);
+  }, [isStudentView, selectedKeyPoint, activeModuleId]);
 
   // Synchronize timer state
   useEffect(() => {
@@ -344,7 +372,8 @@ export default function App() {
   // Listen to cross-tab updates (e.g. Instructor changes module or status in another tab/window)
   useEffect(() => {
     const handleStorageUpdate = (e: StorageEvent) => {
-      if (e.key === MODULES_STORAGE_KEY && e.newValue) {
+      // ONLY participant tab should sync from instructor's localStorage changes
+      if (isStudentView && e.key === MODULES_STORAGE_KEY && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed) && parsed.length > 0) {
